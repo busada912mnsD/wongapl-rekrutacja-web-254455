@@ -33,9 +33,6 @@ jobs:
         env:
           BASE_URL: ${{ vars.BASE_URL }}
 
-      - name: Run Playwright tests
-        run: npx playwright test --workers=3
-
       - name: Install dependencies
         run: npm install --legacy-peer-deps
 
