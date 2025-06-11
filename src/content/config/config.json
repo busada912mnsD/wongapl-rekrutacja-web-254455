@@ -6,6 +6,10 @@
   },
   "nav": [
     {
+      "title": "Pagination",
+      "link": "/pagination"
+    },
+    {
       "title": "Home",
       "link": "/"
     },

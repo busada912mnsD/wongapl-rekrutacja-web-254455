@@ -1,0 +1,78 @@
+---
+import { getCollection } from "astro:content";
+import { defineCollection } from "tinacms";
+import { client } from "../../../tina/__generated__/client";
+
+const allElements = await client.queries.paginationConnection();
+const allNodes = allElements.data.paginationConnection.edges.map((edge) => edge.node);
+
+allNodes.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+
+const pageSize = 3;
+const currentPage = 1;
+const lastPage = Math.ceil(allNodes.length / pageSize);
+const start = (currentPage - 1) * pageSize;
+const end = start + pageSize;
+const currentPageData = allNodes.slice(start, end);
+
+const page = {
+  data: currentPageData,
+  currentPage,
+  lastPage,
+  url: {
+    prev: null,
+    next: lastPage > 1 ? '/pagination/2' : null
+  }
+};
+---
+
+<html lang="pl">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width" />
+    <title>Pagination - Page {page.currentPage}</title>
+    <style>
+      body { font-family: sans-serif; margin: 2rem; }
+      .pagination { margin-top: 2rem; }
+      .pagination a { margin-right: 1rem; text-decoration: none; padding: 0.5rem 1rem; border: 1px solid #ccc; border-radius: 4px; }
+      .pagination a.active { background-color: #007bff; color: white; border-color: #007bff; }
+      .pagination a.disabled { opacity: 0.5; pointer-events: none; }
+      .element-card { border: 1px solid #eee; padding: 1rem; margin-bottom: 1rem; border-radius: 8px; }
+      .element-card h2 { margin-top: 0; }
+    </style>
+  </head>
+  <body>
+    <h1>Pagination Elements</h1>
+
+    {page.data.map((element) => (
+      <div class="element-card">
+        <h2>{element.title}</h2>
+        <p>Data: {new Date(element.date).toLocaleDateString('pl-PL')}</p>
+        <div set:html={element.body} />
+      </div>
+    ))}
+
+    <div class="pagination">
+      {page.url.prev ? (
+        <a href={page.url.prev}>Previous</a>
+      ) : (
+        <a class="disabled">Previous</a>
+      )}
+
+      {Array.from({ length: page.lastPage }, (_, i) => i + 1).map((num) => (
+        <a
+          href={num === 1 ? '/pagination' : `/pagination/${num}`}
+          class={num === page.currentPage ? 'active' : ''}
+        >
+          {num}
+        </a>
+      ))}
+
+      {page.url.next ? (
+        <a href={page.url.next}>Next</a>
+      ) : (
+        <a class="disabled">Next</a>
+      )}
+    </div>
+  </body>
+</html> 

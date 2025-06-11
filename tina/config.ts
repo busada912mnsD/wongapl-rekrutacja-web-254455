@@ -5,6 +5,7 @@ import { GlobalConfigCollection } from "./collections/global-config";
 import { PageCollection } from "./collections/page";
 import { FooterLinksCollection } from "./collections/footer";
 import { LazyWysiwygEditor } from "./components/LazyWysiwygEditor";
+import { PaginationCollection } from "./collections/pagination";
 
 const branch = process.env.GITHUB_BRANCH || process.env.VERCEL_GIT_COMMIT_REF || process.env.HEAD || "main";
 
@@ -34,6 +35,6 @@ export default defineConfig({
     },
   },
   schema: {
-    collections: [BlogCollection, PageCollection, GlobalConfigCollection, FooterLinksCollection],
+    collections: [BlogCollection, PageCollection, GlobalConfigCollection, FooterLinksCollection, PaginationCollection],
   },
 });
