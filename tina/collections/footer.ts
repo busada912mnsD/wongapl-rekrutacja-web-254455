@@ -25,7 +25,7 @@ export const FooterLinksCollection: Collection = {
     },
     {
       type: "object",
-      name: "links",
+      name: "anchors",
       label: "Footer Navigation Links",
       list: true,
       ui: {

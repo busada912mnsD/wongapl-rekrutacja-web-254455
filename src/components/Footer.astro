@@ -34,15 +34,15 @@ const today = new Date();
 		</div>
 		<div class="social-links">
 			{
-				footerConfig?.links?.map((link) => {
+				footerConfig?.anchors?.map((anchor) => {
 					return (
 						<a
-							href={link.url}
-							target={link.target || '_self'}
-							rel={link.rel || ''}
+							href={anchor.url}
+							target={anchor.target || '_self'}
+							rel={anchor.rel || ''}
 						>
-							{link.icon && <Icon name={link.icon} class="w-6 h-6" />}
-							{link.label}
+							{anchor.icon && <Icon name={anchor.icon} class="w-6 h-6" />}
+							{anchor.label}
 						</a>
 					);
 				})
