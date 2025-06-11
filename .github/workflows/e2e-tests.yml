@@ -26,6 +26,16 @@ jobs:
         with:
           node-version: 20
 
+      - name: Debug BASE_URL
+        run: |
+          echo "Value of BASE_URL (from env block): $BASE_URL"
+          echo "Value of BASE_URL (from GitHub vars context): ${{ vars.BASE_URL }}"
+        env:
+          BASE_URL: ${{ vars.BASE_URL }}
+
+      - name: Run Playwright tests
+        run: npx playwright test --workers=3
+
       - name: Install dependencies
         run: npm install --legacy-peer-deps
 
