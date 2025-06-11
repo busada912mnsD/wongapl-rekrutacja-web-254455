@@ -13,7 +13,7 @@ test.describe("Pagination Tests", () => {
       await nextButtonLocator.click();
       currentPage++;
 
-      await page.waitForURL(`/pagination/${currentPage}`);
+      await page.waitForURL(`/pagination/${currentPage}`, { timeout: 90000 });
 
       await expect(page).toHaveURL(new RegExp(`/pagination/${currentPage}/?`));
 

@@ -8,7 +8,6 @@ on:
   push:
     branches:
       - main
-      - feature/e2e
 
 jobs:
   run-e2e-tests:
@@ -53,20 +52,7 @@ jobs:
         run: |
           echo "Value of BASE_URL (from env block): $BASE_URL"
 
-      - name: Run Playwright tests to update snapshots
-        if: github.event_name == 'push' && github.ref == 'refs/heads/feature/e2e'
-        run: npx playwright test --update-snapshots
-
-      - name: Upload new Playwright snapshots
-        uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: playwright-snapshots-linux
-          path: tests/**/*-linux.png
-          retention-days: 1
-
-      - name: Run Playwright tests (normal mode)
-        if: github.event_name != 'push' || github.ref != 'refs/heads/feature/e2e'
+      - name: Run Playwright tests
         run: npx playwright test --workers=3
 
       - name: Upload Playwright test results (HTML Report)
