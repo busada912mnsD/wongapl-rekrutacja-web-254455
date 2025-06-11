@@ -68,9 +68,10 @@ jobs:
         with:
           script: |
             const status = process.env.TEST_STATUS;
-            const reportUrl = `https://busada912mnsD-wongapl-rekrutacja-web-254455-e2e.pages.dev/`; 
+            const reportUrl = `https://busada912mnsD-wongapl-rekrutacja-web-254455-e2e.pages.dev/`;
 
-            let commentBody = `
+            // --- POPRAWKA TUTAJ ---
+            let commentBody = `### E2E Test Report\n\n`; // Tutaj zaczynamy i dodajemy początkowy tekst
             if (status === 'PASSED') {
               commentBody += `✅ All E2E tests passed! 🎉\n`;
             } else {
@@ -78,6 +79,7 @@ jobs:
             }
             commentBody += `\n**[View Full Playwright Report](${reportUrl})**\n\n`;
             commentBody += `_Last updated: ${new Date().toLocaleString()}_`;
+            // --- KONIEC POPRAWKI ---
 
             const { data: comments } = await github.rest.issues.listComments({
               owner: context.repo.owner,
