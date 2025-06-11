@@ -69,9 +69,6 @@ jobs:
           npm install -g wrangler
           # Pamiętaj, aby NAZWA_TWOJEGO_PROJEKTU_Z_CLOUDFLARE była dokładnie taka jak na zrzucie ekranu
           wrangler pages deploy playwright-report --project-name wongapl-rekrutacja-web-254455-e2e --branch ${{ github.head_ref }} --commit-hash ${{ github.sha }}
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
 
       - name: Get Playwright Test Summary
         id: get_summary
