@@ -8,12 +8,17 @@ test.describe("Pagination Tests", () => {
 
     let nextButtonLocator = page.getByRole("link", { name: "Next" });
 
-    while (await nextButtonLocator.isVisible()) {
+    const maxPages = 100;
+
+    while ((await nextButtonLocator.isVisible()) && currentPage < maxPages) {
       await expect(nextButtonLocator).toBeEnabled();
+
       await nextButtonLocator.click();
+
       currentPage++;
 
-      await page.waitForURL(`/pagination/${currentPage}`, { timeout: 90000 });
+      const currentPageLinkLocator = page.getByRole("link", { name: `${currentPage}`, exact: true });
+      await currentPageLinkLocator.waitFor({ state: "visible", timeout: 45000 });
 
       await expect(page).toHaveURL(new RegExp(`/pagination/${currentPage}/?`));
 
