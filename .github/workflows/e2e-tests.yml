@@ -67,7 +67,8 @@ jobs:
         if: github.event_name == 'pull_request'
         run: |
           npm install -g wrangler
-          wrangler pages deploy playwright-report --project-name busada912mnsD-wongapl-rekrutacja-web-254455-e2e --branch ${{ github.head_ref }} --commit-hash ${{ github.sha }}
+          # Pamiętaj, aby NAZWA_TWOJEGO_PROJEKTU_Z_CLOUDFLARE była dokładnie taka jak na zrzucie ekranu
+          wrangler pages deploy playwright-report --project-name wongapl-rekrutacja-web-254455-e2e --branch ${{ github.head_ref }} --commit-hash ${{ github.sha }}
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
@@ -88,7 +89,8 @@ jobs:
         with:
           script: |
             const status = process.env.TEST_STATUS;
-            const reportUrl = `https://busada912mnsD-wongapl-rekrutacja-web-254455-e2e.pages.dev/`;
+            # Pamiętaj, aby NAZWA_TWOJEGO_PROJEKTU_Z_CLOUDFLARE była dokładnie taka jak na zrzucie ekranu
+            const reportUrl = `https://wongapl-rekrutacja-web-254455-e2e.pages.dev/`;
 
             let commentBody = `### E2E Test Report\n\n`;
             if (status === 'PASSED') {
