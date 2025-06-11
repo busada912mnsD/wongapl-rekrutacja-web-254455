@@ -1,6 +1,21 @@
 ---
-import config from "../content/config/config.json";
-import IconLink from "./react/IconLink";
+import sanitizeHtml from 'sanitize-html'; 
+import { Icon } from 'astro-icon/components'
+import client from "../../tina/__generated__/client";
+
+const footerData = await client.queries.footer({ relativePath: 'Footer-Configuration-Test.mdx' });
+const footerConfig = footerData?.data?.footer;
+
+const rawFooterText = footerConfig?.footerText;
+
+
+const sanitizedFooterHtml = rawFooterText ? sanitizeHtml(rawFooterText, {
+  allowedTags: [ 'b', 'i', 'u', 'a' ,'p'],
+  allowedAttributes: {
+    'a': [ 'href', 'target', 'rel' ]
+  },
+}) : '';
+
 const today = new Date();
 ---
 <div class="tina-footer">
@@ -8,13 +23,27 @@ const today = new Date();
 	</div>
 </div>
 	<footer class="copyright-footer">
+		
 		&copy; {today.getFullYear()}
-		{config.seo.siteOwner}. All rights reserved.
+		
+		{footerConfig?.siteOwner}. All rights reserved.
+		<div class="added-footer">
+            <div class="footer-text-content">
+                <div set:html={sanitizedFooterHtml}></div>
+            </div>
+		</div>
 		<div class="social-links">
 			{
-				config?.contactLinks?.map((link) => {
+				footerConfig?.links?.map((link) => {
 					return (
-						<IconLink {...link} />
+						<a
+							href={link.url}
+							target={link.target || '_self'}
+							rel={link.rel || ''}
+						>
+							{link.icon && <Icon name={link.icon} class="w-6 h-6" />}
+							{link.label}
+						</a>
 					);
 				})
 			}
@@ -93,3 +122,4 @@ const today = new Date();
 		font-weight: bold;
 	}
 </style>
+

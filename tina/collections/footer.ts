@@ -15,11 +15,13 @@ export const FooterLinksCollection: Collection = {
       description: "A unique identifier for this footer configuration.",
     },
     {
-      type: "rich-text",
+      type: "string",
       name: "footerText",
       label: "Footer Text Content",
       description: "Manage the main text content for the footer. Only basic formatting and links are allowed.",
-      templates: [],
+      ui: {
+        component: "wysiwyg-editor",
+      },
     },
     {
       type: "object",
