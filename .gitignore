@@ -150,3 +150,5 @@ deno.lock
 /test-results/
 /playwright-report/
 
+test_output.txt
+debug_cloudflare_url.sh

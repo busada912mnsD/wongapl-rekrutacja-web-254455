@@ -27,6 +27,7 @@
   "devDependencies": {
     "@tinacms/cli": "^1.9.8",
     "@types/node": "^22.15.29",
-    "astro-icon": "^1.1.5"
+    "astro-icon": "^1.1.5",
+    "wrangler": "^4.19.2"
   }
 }

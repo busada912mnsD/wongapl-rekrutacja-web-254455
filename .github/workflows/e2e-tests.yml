@@ -60,7 +60,6 @@ jobs:
           GITHUB_HEAD_REF: ${{ github.head_ref }}
         run: |
           set -euo pipefail
-          npm install -g wrangler@latest
 
           if ! command -v jq &> /dev/null; then
             sudo apt-get update
@@ -68,7 +67,7 @@ jobs:
           fi
 
           # Pobierz listę projektów i znajdź ID
-          PROJECTS_JSON=$(wrangler pages project list --json 2>/dev/null || wrangler pages list --json 2>/dev/null)
+          PROJECTS_JSON=$(npx wrangler pages project list --json 2>/dev/null || npx wrangler pages list --json 2>/dev/null)
           if [ -z "$PROJECTS_JSON" ]; then
             echo "::error::Nie udało się pobrać listy projektów"
             exit 1
@@ -142,8 +141,7 @@ jobs:
         id: deploy_report
         if: github.event_name == 'pull_request'
         run: |
-          npm install -g wrangler@latest
-          DEPLOY_JSON=$(wrangler pages deploy playwright-report \
+          DEPLOY_JSON=$(npx wrangler pages deploy playwright-report \
             --project-name wongapl-rekrutacja-web-254455-e2e \
             --branch ${{ github.head_ref }} \
             --commit-hash ${{ github.sha }} \
