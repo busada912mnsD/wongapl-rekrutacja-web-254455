@@ -12,9 +12,6 @@ on:
 jobs:
   run-e2e-tests:
     runs-on: ubuntu-latest
-    permissions:
-      issues: write
-      pull-requests: write
     env:
       BASE_URL: "https://663d1d92.wongapl-rekrutacja-web-254455.pages.dev/"
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
