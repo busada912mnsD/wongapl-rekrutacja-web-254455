@@ -98,12 +98,10 @@ jobs:
             echo "$DEPLOYMENTS_JSON" | jq -r --arg commit_hash "$SOURCE_COMMIT" --arg branch "$GITHUB_HEAD_REF" \
               '.result[] | select(.deployment_trigger.metadata.commit_hash == $commit_hash) | select(.deployment_trigger.metadata.branch == $branch) | "\(.id) - \(.deployment_trigger.metadata.commit_hash) - \(.deployment_trigger.metadata.branch) - Status: \(.latest_stage.status) - URL: \(.url) - Branch Preview URL: \(.branch_preview_url)"' || true
             
-            # Zmieniono z .url na .branch_preview_url
             DEPLOYMENT_URL=$(echo "$DEPLOYMENTS_JSON" | jq -r --arg commit_hash "$SOURCE_COMMIT" --arg branch "$GITHUB_HEAD_REF" \
               '.result[] | select(.deployment_trigger.metadata.commit_hash == $commit_hash and .deployment_trigger.metadata.branch == $branch and .latest_stage.status == "success") | .branch_preview_url')
 
             if [ -z "$DEPLOYMENT_URL" ]; then
-                # Fallback na .url jeśli branch_preview_url jest pusty (mniej prawdopodobne, ale dla bezpieczeństwa)
                 DEPLOYMENT_URL=$(echo "$DEPLOYMENTS_JSON" | jq -r --arg commit_hash "$SOURCE_COMMIT" --arg branch "$GITHUB_HEAD_REF" \
                   '.result[] | select(.deployment_trigger.metadata.commit_hash == $commit_hash and .deployment_trigger.metadata.branch == $branch and .latest_stage.status == "success") | .url')
                 if [ -n "$DEPLOYMENT_URL" ]; then
@@ -148,7 +146,6 @@ jobs:
         run: |
           set -euo pipefail
 
-          echo "Attempting to deploy Playwright report..."
           DEPLOY_OUTPUT=$(npx wrangler pages deploy playwright-report \
             --project-name ${{ env.CLOUDFLARE_E2E_REPORT_PROJECT_NAME }} \
             --branch ${{ github.head_ref }} \
@@ -159,7 +156,12 @@ jobs:
           echo "Full Wrangler deploy output:"
           echo "$DEPLOY_OUTPUT"
 
-          echo "deployment_url=https://${{ env.CLOUDFLARE_E2E_REPORT_PROJECT_NAME }}.pages.dev/" >> $GITHUB_OUTPUT
+          DEPLOYMENT_PREVIEW_URL=$(echo "$DEPLOY_OUTPUT" | grep 'https://' | head -n 1 | awk '{print $NF}')
+
+          if [ -z "$DEPLOYMENT_PREVIEW_URL" ]; then
+            DEPLOYMENT_PREVIEW_URL="https://${{ github.head_ref }}.${{ env.CLOUDFLARE_E2E_REPORT_PROJECT_NAME }}.pages.dev/"
+          fi
+          echo "deployment_url=$DEPLOYMENT_PREVIEW_URL" >> $GITHUB_OUTPUT
 
       - name: Get Playwright Test Summary
         id: get_summary
