@@ -67,7 +67,6 @@ jobs:
         if: github.event_name == 'pull_request'
         run: |
           npm install -g wrangler
-          # Pamiętaj, aby NAZWA_TWOJEGO_PROJEKTU_Z_CLOUDFLARE była dokładnie taka jak na zrzucie ekranu
           wrangler pages deploy playwright-report --project-name wongapl-rekrutacja-web-254455-e2e --branch ${{ github.head_ref }} --commit-hash ${{ github.sha }}
 
       - name: Get Playwright Test Summary
@@ -86,7 +85,6 @@ jobs:
         with:
           script: |
             const status = process.env.TEST_STATUS;
-            # Pamiętaj, aby NAZWA_TWOJEGO_PROJEKTU_Z_CLOUDFLARE była dokładnie taka jak na zrzucie ekranu
             const reportUrl = `https://wongapl-rekrutacja-web-254455-e2e.pages.dev/`;
 
             let commentBody = `### E2E Test Report\n\n`;
@@ -123,5 +121,11 @@ jobs:
                 body: commentBody,
               });
             }
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          debug: false
+          user-agent: actions/github-script
+          result-encoding: json
+          retries: 0
+          retry-exempt-status-codes: 400,401,403,404,422
         env:
           TEST_STATUS: ${{ steps.get_summary.outputs.TEST_STATUS }}
