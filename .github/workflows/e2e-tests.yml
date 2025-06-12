@@ -73,7 +73,8 @@ jobs:
         run: |
           npm install -g wrangler
           DEPLOY_OUTPUT=$(wrangler pages deploy playwright-report --project-name wongapl-rekrutacja-web-254455-e2e --branch ${{ github.head_ref }} --commit-hash ${{ github.sha }})
-          REPORT_URL=$(echo "$DEPLOY_OUTPUT" | grep 'https://' | grep -v 'dash.cloudflare.com' | head -n 1)
+          # Zmieniono sposób wyodrębniania URL-a, aby zawsze pobierać ten z hashem
+          REPORT_URL=$(echo "$DEPLOY_OUTPUT" | awk '/Deployment complete! Take a peek over at/ {print $NF}')
           echo "deployment_url=$REPORT_URL" >> $GITHUB_OUTPUT
 
       - name: Get Playwright Test Summary
@@ -92,9 +93,9 @@ jobs:
         with:
           script: |
             const status = process.env.TEST_STATUS;
-            const reportUrl = process.env.REPORT_DEPLOY_URL;
+            const reportUrl = process.env.REPORT_DEPLOY_URL; # To będzie URL z hashem
 
-            let commentBody = `
+            let commentBody = `### E2E Test Report\n\n`;
             if (status === 'PASSED') {
               commentBody += `✅ All E2E tests passed! 🎉\n`;
             } else {
