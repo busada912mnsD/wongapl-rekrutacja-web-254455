@@ -12,6 +12,7 @@ on:
 jobs:
   run-e2e-tests:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     permissions:
       contents: write
       issues: write
@@ -20,50 +21,36 @@ jobs:
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
       CLOUDFLARE_MAIN_APP_PROJECT_NAME: wongapl-rekrutacja-web-254455
+      PLAYWRIGHT_HTML_REPORT: playwright-report
+      PLAYWRIGHT_E2E_PROJECT: wongapl-rekrutacja-web-254455-e2e
 
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
           node-version: 20
-
-      - name: Cache Node.js modules
-        uses: actions/cache@v4
-        with:
-          path: ~/.npm
-          key: ${{ runner.os }}-node-${{ hashFiles('**/package-lock.json') }}
-          restore-keys: |
-            ${{ runner.os }}-node-
+          cache: "npm"
 
       - name: Install dependencies
-        run: npm install --legacy-peer-deps
-
-      - name: Cache Playwright browsers
-        uses: actions/cache@v4
-        with:
-          path: ~/.cache/ms-playwright
-          key: ${{ runner.os }}-playwright-${{ hashFiles('**/package.json') }}
-          restore-keys: |
-            ${{ runner.os }}-playwright-
+        run: npm ci --legacy-peer-deps
 
       - name: Install Playwright browsers
-        run: npx playwright install --with-deps
+        run: npx playwright install --with-deps chromium firefox webkit
 
       - name: Get Main App Preview URL from Cloudflare Pages
         id: get_app_url
         if: github.event_name == 'pull_request'
+        timeout-minutes: 10
         run: |
-          npm install -g wrangler
+          npm install -g wrangler@latest
 
-          echo "Sprawdzanie dostępności jq..."
-          if ! command -v jq &> /dev/null
-          then
-              echo "jq nie znaleziono, instaluję jq..."
-              sudo apt-get update
-              sudo apt-get install -y jq
+          if ! command -v jq &> /dev/null; then
+              sudo apt-get update && sudo apt-get install -y jq
           fi
 
           PROJECT_ID=$(wrangler pages project get ${{ env.CLOUDFLARE_MAIN_APP_PROJECT_NAME }} --json | jq -r '.result.id')
@@ -74,8 +61,8 @@ jobs:
 
           echo "Oczekiwanie na gotowość wdrożenia głównej aplikacji..."
           ATTEMPTS=0
-          MAX_ATTEMPTS=20
-          SLEEP_TIME=15
+          MAX_ATTEMPTS=30
+          SLEEP_TIME=10
           DEPLOYMENT_URL=""
 
           while [ -z "$DEPLOYMENT_URL" ] && [ "$ATTEMPTS" -lt "$MAX_ATTEMPTS" ]; do
@@ -86,15 +73,22 @@ jobs:
               -H "Authorization: Bearer ${{ env.CLOUDFLARE_API_TOKEN }}" \
               -H "Content-Type:application/json")
             
+            if [ $? -ne 0 ]; then
+              echo "::warning::Błąd podczas pobierania informacji o wdrożeniu"
+              sleep "$SLEEP_TIME"
+              continue
+            fi
+
             DEPLOYMENT_INFO=$(echo "$DEPLOYMENTS_JSON" | jq -r --arg commit_hash "${{ github.sha }}" '.result[] | select(.deployment_trigger.metadata.commit_hash == $commit_hash) | select(.latest_stage.status == "success") | .url')
 
             if [ -n "$DEPLOYMENT_INFO" ]; then
               DEPLOYMENT_URL=$DEPLOYMENT_INFO
               echo "Znaleziono URL wdrożenia głównej aplikacji: $DEPLOYMENT_URL"
-            else
-              echo "Wdrożenie nie jest jeszcze gotowe dla commita ${{ github.sha }} na gałęzi ${{ github.head_ref }}. Oczekiwanie ${SLEEP_TIME} sekund..."
-              sleep "$SLEEP_TIME"
+              break
             fi
+
+            echo "Wdrożenie nie jest jeszcze gotowe dla commita ${{ github.sha }} na gałęzi ${{ github.head_ref }}. Oczekiwanie ${SLEEP_TIME} sekund..."
+            sleep "$SLEEP_TIME"
           done
 
           if [ -z "$DEPLOYMENT_URL" ]; then
@@ -104,29 +98,28 @@ jobs:
 
           echo "app_preview_url=$DEPLOYMENT_URL" >> $GITHUB_OUTPUT
 
-      - name: Debug Main App URL
-        run: echo "Main App Preview URL: ${{ steps.get_app_url.outputs.app_preview_url }}"
-        if: github.event_name == 'pull_request'
-
       - name: Run Playwright tests
-        run: npx playwright test --workers=3
+        timeout-minutes: 15
+        run: npx playwright test --workers=3 --reporter=html,line
         env:
           BASE_URL: ${{ steps.get_app_url.outputs.app_preview_url }}
+          PLAYWRIGHT_HTML_REPORT: ${{ env.PLAYWRIGHT_HTML_REPORT }}
 
-      - name: Upload Playwright test results (HTML Report)
+      - name: Upload Playwright test results
         uses: actions/upload-artifact@v4
         if: always()
         with:
           name: playwright-report
-          path: playwright-report/
-          retention-days: 5
+          path: ${{ env.PLAYWRIGHT_HTML_REPORT }}/
+          retention-days: 7
 
-      - name: Publish Playwright Report to Cloudflare Pages (e2e project)
+      - name: Publish Playwright Report to Cloudflare Pages
         id: deploy_report
         if: github.event_name == 'pull_request'
+        timeout-minutes: 5
         run: |
-          npm install -g wrangler
-          DEPLOY_OUTPUT=$(wrangler pages deploy playwright-report --project-name wongapl-rekrutacja-web-254455-e2e --branch ${{ github.head_ref }} --commit-hash ${{ github.sha }})
+          npm install -g wrangler@latest
+          DEPLOY_OUTPUT=$(wrangler pages deploy ${{ env.PLAYWRIGHT_HTML_REPORT }} --project-name ${{ env.PLAYWRIGHT_E2E_PROJECT }} --branch ${{ github.head_ref }} --commit-hash ${{ github.sha }})
           REPORT_URL=$(echo "$DEPLOY_OUTPUT" | awk '/Deployment complete! Take a peek over at/ {print $NF}')
           echo "deployment_url=$REPORT_URL" >> $GITHUB_OUTPUT
 
@@ -134,7 +127,7 @@ jobs:
         id: get_summary
         if: github.event_name == 'pull_request'
         run: |
-          if grep -q "failed" playwright-report/index.html; then
+          if grep -q "failed" ${{ env.PLAYWRIGHT_HTML_REPORT }}/index.html; then
             echo "TEST_STATUS=FAILED" >> $GITHUB_OUTPUT
           else
             echo "TEST_STATUS=PASSED" >> $GITHUB_OUTPUT
@@ -148,7 +141,7 @@ jobs:
             const status = process.env.TEST_STATUS;
             const reportUrl = process.env.REPORT_DEPLOY_URL; 
             const appPreviewUrl = process.env.APP_PREVIEW_URL; 
-            
+
             let commentBody = `### E2E Test Report\n\n`;
             if (status === 'PASSED') {
               commentBody += `✅ Wszystkie testy E2E zakończone sukcesem! 🎉\n`;
@@ -190,8 +183,8 @@ jobs:
           debug: false
           user-agent: actions/github-script
           result-encoding: json
-          retries: 0
-          retry-exempt-status-codes: 400,401,403,404,422
+          retries: 3
+          retry-exempt-status-codes: "400,401,403,404,422"
         env:
           TEST_STATUS: ${{ steps.get_summary.outputs.TEST_STATUS }}
           REPORT_DEPLOY_URL: ${{ steps.deploy_report.outputs.deployment_url }}
