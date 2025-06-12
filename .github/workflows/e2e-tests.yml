@@ -10,35 +10,7 @@ on:
       - main
 
 jobs:
-  setup:
-    runs-on: ubuntu-latest
-    outputs:
-      node-cache-key: ${{ steps.node-cache.outputs.key }}
-      playwright-cache-key: ${{ steps.playwright-cache.outputs.key }}
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Create Node.js modules cache
-        id: node-cache
-        uses: actions/cache@v4
-        with:
-          path: ~/.npm
-          key: ${{ runner.os }}-node-${{ hashFiles('**/package-lock.json') }}
-          restore-keys: |
-            ${{ runner.os }}-node-
-
-      - name: Create Playwright browsers cache
-        id: playwright-cache
-        uses: actions/cache@v4
-        with:
-          path: ~/.cache/ms-playwright
-          key: ${{ runner.os }}-playwright-${{ hashFiles('**/package.json') }}
-          restore-keys: |
-            ${{ runner.os }}-playwright-
-
   run-e2e-tests:
-    needs: setup
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -58,22 +30,24 @@ jobs:
         with:
           node-version: 20
 
-      - name: Restore Node.js modules cache
+      - name: Cache Node.js modules
         uses: actions/cache@v4
+        id: npm-cache
         with:
           path: ~/.npm
-          key: ${{ needs.setup.outputs.node-cache-key }}
+          key: ${{ runner.os }}-node-${{ hashFiles('**/package-lock.json') }}
           restore-keys: |
             ${{ runner.os }}-node-
 
       - name: Install dependencies
         run: npm install --legacy-peer-deps
 
-      - name: Restore Playwright browsers cache
+      - name: Cache Playwright browsers
         uses: actions/cache@v4
+        id: playwright-cache
         with:
           path: ~/.cache/ms-playwright
-          key: ${{ needs.setup.outputs.playwright-cache-key }}
+          key: ${{ runner.os }}-playwright-${{ hashFiles('**/package.json') }}
           restore-keys: |
             ${{ runner.os }}-playwright-
 
@@ -133,8 +107,6 @@ jobs:
         if: github.event_name == 'pull_request'
         run: |
           echo "Main App Preview URL: ${{ steps.get_app_url.outputs.app_preview_url }}"
-          echo "Source Commit: ${{ env.SOURCE_COMMIT }}"
-          echo "Head Ref: ${{ env.GITHUB_HEAD_REF }}"
 
       - name: Run Playwright tests
         run: npx playwright test --workers=3
@@ -151,7 +123,7 @@ jobs:
 
       - name: Publish Playwright Report to Cloudflare Pages (e2e project)
         id: deploy_report
-        if: github.event_name == 'pull_request'
+        if: always() && github.event_name == 'pull_request'
         run: |
           npm install -g wrangler@latest
           DEPLOY_JSON=$(npx wrangler pages deploy playwright-report \
@@ -172,11 +144,21 @@ jobs:
         id: get_summary
         if: always() && github.event_name == 'pull_request'
         run: |
-          if [ -f "test-results.json" ]; then
-            status=$(jq -r '[.suites[].specs[].tests[].results[].status] | if any(. == "failed") then "FAILED" else "PASSED" end' test-results.json)
-          else
-            status="ERROR: Results not found"
+          # Zapewnia, że plik JSON istnieje, aby uniknąć błędów
+          if [ ! -f playwright-report/results.json ]; then
+              echo "TEST_STATUS=ERROR: results.json not found" >> $GITHUB_OUTPUT
+              exit 0
           fi
+
+          # Sprawdzenie, czy są jakiekolwiek testy, które zawiodły
+          FAILED_COUNT=$(jq '.stats.failures' playwright-report/results.json)
+
+          if [ "$FAILED_COUNT" -gt 0 ]; then
+              status="FAILED"
+          else
+              status="PASSED"
+          fi
+
           echo "TEST_STATUS=$status" >> $GITHUB_OUTPUT
 
       - name: Comment on Pull Request
@@ -188,20 +170,20 @@ jobs:
             const reportUrl = process.env.REPORT_DEPLOY_URL;
             const appPreviewUrl = process.env.APP_PREVIEW_URL;
 
-            let commentBody = '### E2E Test Report\n\n';
+            let commentBody = '### 🤖 E2E Test Report\n\n';
             commentBody += status.includes("PASSED") 
-              ? '✅ **ALL TESTS PASSED**\n' 
-              : '❌ **TEST ERRORS DETECTED**\n';
+              ? '✅ **Wszystkie testy zaliczone**\n' 
+              : '❌ **Wykryto błędy w testach**\n';
 
             if (appPreviewUrl) {
-              commentBody += `🔹 [Application Preview](${appPreviewUrl})\n`;
+              commentBody += `\n🔹 [**Podgląd aplikacji**](${appPreviewUrl})\n`;
             }
 
             if (reportUrl) {
-              commentBody += `📊 [Full Test Report](${reportUrl})\n`;
+              commentBody += `📊 [**Pełny raport z testów**](${reportUrl})\n`;
             }
 
-            commentBody += `\n_Last updated: ${new Date().toLocaleString()}_`;
+            commentBody += `\n*Ostatnia aktualizacja: ${new Date().toLocaleString('pl-PL')}*`;
 
             const { data: comments } = await github.rest.issues.listComments({
               owner: context.repo.owner,
