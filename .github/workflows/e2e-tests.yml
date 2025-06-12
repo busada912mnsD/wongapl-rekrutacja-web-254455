@@ -96,16 +96,24 @@ jobs:
             
             echo "Available deployments for branch $GITHUB_HEAD_REF and commit $SOURCE_COMMIT:"
             echo "$DEPLOYMENTS_JSON" | jq -r --arg commit_hash "$SOURCE_COMMIT" --arg branch "$GITHUB_HEAD_REF" \
-              '.result[] | select(.deployment_trigger.metadata.commit_hash == $commit_hash) | select(.deployment_trigger.metadata.branch == $branch) | "\(.id) - \(.deployment_trigger.metadata.commit_hash) - \(.deployment_trigger.metadata.branch) - Status: \(.latest_stage.status) - URL: \(.url)"' || true
+              '.result[] | select(.deployment_trigger.metadata.commit_hash == $commit_hash) | select(.deployment_trigger.metadata.branch == $branch) | "\(.id) - \(.deployment_trigger.metadata.commit_hash) - \(.deployment_trigger.metadata.branch) - Status: \(.latest_stage.status) - URL: \(.url) - Branch Preview URL: \(.branch_preview_url)"' || true
             
+            # Zmieniono z .url na .branch_preview_url
             DEPLOYMENT_URL=$(echo "$DEPLOYMENTS_JSON" | jq -r --arg commit_hash "$SOURCE_COMMIT" --arg branch "$GITHUB_HEAD_REF" \
-              '.result[] | select(.deployment_trigger.metadata.commit_hash == $commit_hash and .deployment_trigger.metadata.branch == $branch and .latest_stage.status == "success") | .url')
+              '.result[] | select(.deployment_trigger.metadata.commit_hash == $commit_hash and .deployment_trigger.metadata.branch == $branch and .latest_stage.status == "success") | .branch_preview_url')
 
-            if [ -n "$DEPLOYMENT_URL" ]; then
-              echo "Found successful deployment URL for the main app: $DEPLOYMENT_URL"
+            if [ -z "$DEPLOYMENT_URL" ]; then
+                # Fallback na .url jeśli branch_preview_url jest pusty (mniej prawdopodobne, ale dla bezpieczeństwa)
+                DEPLOYMENT_URL=$(echo "$DEPLOYMENTS_JSON" | jq -r --arg commit_hash "$SOURCE_COMMIT" --arg branch "$GITHUB_HEAD_REF" \
+                  '.result[] | select(.deployment_trigger.metadata.commit_hash == $commit_hash and .deployment_trigger.metadata.branch == $branch and .latest_stage.status == "success") | .url')
+                if [ -n "$DEPLOYMENT_URL" ]; then
+                    echo "Found successful deployment URL (using .url as fallback) for the main app: $DEPLOYMENT_URL"
+                else
+                    echo "Deployment for commit $SOURCE_COMMIT on branch $GITHUB_HEAD_REF is not ready yet (waiting for status: success). Retrying in ${SLEEP_TIME} seconds..."
+                    sleep "$SLEEP_TIME"
+                fi
             else
-              echo "Deployment for commit $SOURCE_COMMIT on branch $GITHUB_HEAD_REF is not ready yet (waiting for status: success). Retrying in ${SLEEP_TIME} seconds..."
-              sleep "$SLEEP_TIME"
+              echo "Found successful deployment Branch Preview URL for the main app: $DEPLOYMENT_URL"
             fi
           done
 
