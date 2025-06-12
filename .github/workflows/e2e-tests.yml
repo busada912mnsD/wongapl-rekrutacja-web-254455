@@ -63,7 +63,7 @@ jobs:
             sudo apt-get install -y jq
           fi
 
-          PROJECT_ID=$(wrangler pages project get ${{ env.CLOUDFLARE_MAIN_APP_PROJECT_NAME }} --json | jq -r '.result.id')
+          PROJECT_ID=$(wrangler pages project list --json | jq -r --arg PROJECT_NAME "${{ env.CLOUDFLARE_MAIN_APP_PROJECT_NAME }}" '.result[] | select(.name == $PROJECT_NAME) | .id')
           if [ -z "$PROJECT_ID" ]; then
             echo "::error::Nie znaleziono ID projektu Cloudflare Pages dla ${{ env.CLOUDFLARE_MAIN_APP_PROJECT_NAME }}"
             exit 1
