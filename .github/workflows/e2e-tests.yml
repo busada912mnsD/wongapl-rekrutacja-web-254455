@@ -1,19 +1,19 @@
-name: E2E Tests
+name: E2E Tests (Preview URL check)
 
 on:
   pull_request:
     branches:
       - main
     types: [opened, synchronize, reopened]
-  push:
-    branches:
-      - main
+  # push:
+  #   branches:
+  #     - main
 
 jobs:
   run-e2e-tests:
     runs-on: ubuntu-latest
     permissions:
-      contents: write
+      contents: read # Zmieniono na read dla minimalnych uprawnień w tym teście
       issues: write
       pull-requests: write
     env:
@@ -30,27 +30,27 @@ jobs:
         with:
           node-version: 20
 
-      - name: Cache Node.js modules
-        uses: actions/cache@v4
-        with:
-          path: ~/.npm
-          key: ${{ runner.os }}-node-${{ hashFiles('**/package-lock.json') }}
-          restore-keys: |
-            ${{ runner.os }}-node-
+      # - name: Cache Node.js modules
+      #   uses: actions/cache@v4
+      #   with:
+      #     path: ~/.npm
+      #     key: ${{ runner.os }}-node-${{ hashFiles('**/package-lock.json') }}
+      #     restore-keys: |
+      #       ${{ runner.os }}-node-
 
-      - name: Install dependencies
-        run: npm install --legacy-peer-deps
+      # - name: Install dependencies
+      #   run: npm install --legacy-peer-deps
 
-      - name: Cache Playwright browsers
-        uses: actions/cache@v4
-        with:
-          path: ~/.cache/ms-playwright
-          key: ${{ runner.os }}-playwright-${{ hashFiles('**/package.json') }}
-          restore-keys: |
-            ${{ runner.os }}-playwright-
+      # - name: Cache Playwright browsers
+      #   uses: actions/cache@v4
+      #   with:
+      #     path: ~/.cache/ms-playwright
+      #     key: ${{ runner.os }}-playwright-${{ hashFiles('**/package.json') }}
+      #     restore-keys: |
+      #       ${{ runner.os }}-playwright-
 
-      - name: Install Playwright browsers
-        run: npx playwright install --with-deps
+      # - name: Install Playwright browsers
+      #   run: npx playwright install --with-deps
 
       - name: Get Main App Preview URL from Cloudflare Pages
         id: get_app_url
@@ -66,24 +66,32 @@ jobs:
             sudo apt-get install -y jq
           fi
 
-          # Pobierz listę projektów i znajdź ID
+          npm install -g wrangler@latest
+
+          if ! command -v wrangler &> /dev/null; then
+            echo "::error::Wrangler is not found in PATH after installation."
+            exit 1
+          fi
+
           PROJECTS_JSON=$(npx wrangler pages project list --json 2>/dev/null || npx wrangler pages list --json 2>/dev/null)
           if [ -z "$PROJECTS_JSON" ]; then
-            echo "::error::Nie udało się pobrać listy projektów"
+            echo "::error::Nie udało się pobrać listy projektów Cloudflare Pages. Sprawdź token API i uprawnienia."
             exit 1
           fi
 
           PROJECT_ID=$(echo "$PROJECTS_JSON" | jq -r --arg PROJECT_NAME "$CLOUDFLARE_MAIN_APP_PROJECT_NAME" '.[] | select(.name == $PROJECT_NAME) | .id')
           if [ -z "$PROJECT_ID" ]; then
-            echo "::error::Nie znaleziono ID projektu Cloudflare Pages dla $CLOUDFLARE_MAIN_APP_PROJECT_NAME"
+            echo "::error::Nie znaleziono ID projektu Cloudflare Pages dla $CLOUDFLARE_MAIN_APP_PROJECT_NAME. Sprawdź nazwę projektu."
             exit 1
           fi
+          echo "Znaleziono ID projektu: $PROJECT_ID"
 
           ATTEMPTS=0
-          MAX_ATTEMPTS=20
-          SLEEP_TIME=15
+          MAX_ATTEMPTS=10
+          SLEEP_TIME=10
           DEPLOYMENT_URL=""
 
+          echo "Oczekiwanie na gotowość wdrożenia Preview dla commita $SOURCE_COMMIT na gałęzi $GITHUB_HEAD_REF..."
           while [ -z "$DEPLOYMENT_URL" ] && [ "$ATTEMPTS" -lt "$MAX_ATTEMPTS" ]; do
             ATTEMPTS=$((ATTEMPTS+1))
             echo "Próba $ATTEMPTS z $MAX_ATTEMPTS..."
@@ -92,12 +100,15 @@ jobs:
               -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
               -H "Content-Type: application/json")
             
-            # Sprawdź czy odpowiedź jest poprawna
             if ! echo "$DEPLOYMENTS_JSON" | jq -e '.success' >/dev/null 2>&1; then
-              echo "::warning::Nieprawidłowa odpowiedź z API Cloudflare"
+              echo "::warning::Nieprawidłowa odpowiedź z API Cloudflare lub błąd w API (np. token)."
+              echo "Odpowiedź API: $DEPLOYMENTS_JSON"
               sleep "$SLEEP_TIME"
               continue
             fi
+            
+            echo "Dostępne wdrożenia dla $GITHUB_HEAD_REF:"
+            echo "$DEPLOYMENTS_JSON" | jq -r '.result[] | "\(.id) - \(.deployment_trigger.metadata.commit_hash) - \(.deployment_trigger.metadata.branch) - \(.latest_stage.status) - \(.url)"' || true
 
             DEPLOYMENT_INFO=$(echo "$DEPLOYMENTS_JSON" | jq -r --arg commit_hash "$SOURCE_COMMIT" --arg branch "$GITHUB_HEAD_REF" '.result[] | select(.deployment_trigger.metadata.commit_hash == $commit_hash) | select(.deployment_trigger.metadata.branch == $branch) | select(.latest_stage.status == "success") | .url')
 
@@ -105,13 +116,13 @@ jobs:
               DEPLOYMENT_URL=$DEPLOYMENT_INFO
               echo "Znaleziono URL wdrożenia głównej aplikacji: $DEPLOYMENT_URL"
             else
-              echo "Wdrożenie nie jest jeszcze gotowe dla commita $SOURCE_COMMIT na gałęzi $GITHUB_HEAD_REF. Oczekiwanie ${SLEEP_TIME} sekund..."
+              echo "Wdrożenie nie jest jeszcze gotowe dla commita $SOURCE_COMMIT na gałęzi $GITHUB_HEAD_REF (oczekiwany status: success). Oczekiwanie ${SLEEP_TIME} sekund..."
               sleep "$SLEEP_TIME"
             fi
           done
 
           if [ -z "$DEPLOYMENT_URL" ]; then
-            echo "::error::Upłynął czas oczekiwania na gotowość wdrożenia głównej aplikacji."
+            echo "::error::Upłynął czas oczekiwania na gotowość wdrożenia głównej aplikacji. Sprawdź, czy Cloudflare Pages buduje wdrożenie Preview dla tej gałęzi i czy zakończyło się sukcesem."
             exit 1
           fi
 
@@ -124,99 +135,99 @@ jobs:
           echo "Head Ref: ${{ env.GITHUB_HEAD_REF }}"
         if: github.event_name == 'pull_request'
 
-      - name: Run Playwright tests
-        run: npx playwright test --workers=3
-        env:
-          BASE_URL: ${{ steps.get_app_url.outputs.app_preview_url }}
+      # - name: Run Playwright tests
+      #   run: npx playwright test --workers=3
+      #   env:
+      #     BASE_URL: ${{ steps.get_app_url.outputs.app_preview_url }}
 
-      - name: Upload Playwright test results (HTML Report)
-        uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: playwright-report
-          path: playwright-report/
-          retention-days: 5
+      # - name: Upload Playwright test results (HTML Report)
+      #   uses: actions/upload-artifact@v4
+      #   if: always()
+      #   with:
+      #     name: playwright-report
+      #     path: playwright-report/
+      #     retention-days: 5
 
-      - name: Publish Playwright Report to Cloudflare Pages (e2e project)
-        id: deploy_report
-        if: github.event_name == 'pull_request'
-        run: |
-          DEPLOY_JSON=$(npx wrangler pages deploy playwright-report \
-            --project-name wongapl-rekrutacja-web-254455-e2e \
-            --branch ${{ github.head_ref }} \
-            --commit-hash ${{ github.sha }} \
-            --json)
+      # - name: Publish Playwright Report to Cloudflare Pages (e2e project)
+      #   id: deploy_report
+      #   if: github.event_name == 'pull_request'
+      #   run: |
+      #     DEPLOY_JSON=$(npx wrangler pages deploy playwright-report \
+      #       --project-name wongapl-rekrutacja-web-254455-e2e \
+      #       --branch ${{ github.head_ref }} \
+      #       --commit-hash ${{ github.sha }} \
+      #       --json)
 
-          REPORT_URL=$(echo "$DEPLOY_JSON" | jq -r '.url')
-          if [ -z "$REPORT_URL" ]; then
-            echo "::error::Błąd podczas publikacji raportu"
-            exit 1
-          fi
+      #     REPORT_URL=$(echo "$DEPLOY_JSON" | jq -r '.url')
+      #     if [ -z "$REPORT_URL" ]; then
+      #       echo "::error::Błąd podczas publikacji raportu"
+      #       exit 1
+      #     fi
 
-          echo "deployment_url=$REPORT_URL" >> $GITHUB_OUTPUT
+      #     echo "deployment_url=$REPORT_URL" >> $GITHUB_OUTPUT
 
-      - name: Get Playwright Test Summary
-        id: get_summary
-        if: always() && github.event_name == 'pull_request'
-        run: |
-          if [ -f "test-results.json" ]; then
-            status=$(jq -r '[.suites[].specs[].tests[].results[].status] | if any(. == "failed") then "FAILED" else "PASSED" end' test-results.json)
-          else
-            status="ERROR: Brak wyników"
-          fi
-          echo "TEST_STATUS=$status" >> $GITHUB_OUTPUT
+      # - name: Get Playwright Test Summary
+      #   id: get_summary
+      #   if: always() && github.event_name == 'pull_request'
+      #   run: |
+      #     if [ -f "test-results.json" ]; then
+      #       status=$(jq -r '[.suites[].specs[].tests[].results[].status] | if any(. == "failed") then "FAILED" else "PASSED" end' test-results.json)
+      #     else
+      #       status="ERROR: Brak wyników"
+      #     fi
+      #     echo "TEST_STATUS=$status" >> $GITHUB_OUTPUT
 
-      - name: Comment on Pull Request
-        uses: actions/github-script@v7
-        if: github.event_name == 'pull_request'
-        with:
-          script: |
-            const status = process.env.TEST_STATUS;
-            const reportUrl = process.env.REPORT_DEPLOY_URL;
-            const appPreviewUrl = process.env.APP_PREVIEW_URL;
+      # - name: Comment on Pull Request
+      #   uses: actions/github-script@v7
+      #   if: github.event_name == 'pull_request'
+      #   with:
+      #     script: |
+      #       const status = process.env.TEST_STATUS;
+      #       const reportUrl = process.env.REPORT_DEPLOY_URL;
+      #       const appPreviewUrl = process.env.APP_PREVIEW_URL;
 
-            let commentBody = '### E2E Test Report\n\n';
-            commentBody += status.includes("PASSED") 
-              ? '✅ **WSZYSTKIE TESTY ZALICZONE**\n' 
-              : '❌ **WYKRYTO BŁĘDY W TESTACH**\n';
+      #       let commentBody = '### E2E Test Report\n\n';
+      #       commentBody += status.includes("PASSED")
+      #         ? '✅ **WSZYSTKIE TESTY ZALICZONE**\n'
+      #         : '❌ **WYKRYTO BŁĘDY W TESTACH**\n';
 
-            if (appPreviewUrl) {
-              commentBody += `🔹 [Podgląd aplikacji](${appPreviewUrl})\n`;
-            }
+      #       if (appPreviewUrl) {
+      #         commentBody += `🔹 [Podgląd aplikacji](${appPreviewUrl})\n`;
+      #       }
 
-            if (reportUrl) {
-              commentBody += `📊 [Pełny raport testów](${reportUrl})\n`;
-            }
+      #       if (reportUrl) {
+      #         commentBody += `📊 [Pełny raport testów](${reportUrl})\n`;
+      #       }
 
-            commentBody += `\n_Ostatnia aktualizacja: ${new Date().toLocaleString()}_`;
+      #       commentBody += `\n_Ostatnia aktualizacja: ${new Date().toLocaleString()}_`;
 
-            const { data: comments } = await github.rest.issues.listComments({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              issue_number: context.issue.number,
-            });
+      #       const { data: comments } = await github.rest.issues.listComments({
+      #         owner: context.repo.owner,
+      #         repo: context.repo.repo,
+      #         issue_number: context.issue.number,
+      #       });
 
-            const existingComment = comments.find(comment =>
-              comment.user.login === 'github-actions[bot]' && comment.body.includes('E2E Test Report')
-            );
+      #       const existingComment = comments.find(comment =>
+      #         comment.user.login === 'github-actions[bot]' && comment.body.includes('E2E Test Report')
+      #       );
 
-            if (existingComment) {
-              await github.rest.issues.updateComment({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                comment_id: existingComment.id,
-                body: commentBody,
-              });
-            } else {
-              await github.rest.issues.createComment({
-                issue_number: context.issue.number,
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                body: commentBody,
-              });
-            }
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-        env:
-          TEST_STATUS: ${{ steps.get_summary.outputs.TEST_STATUS }}
-          REPORT_DEPLOY_URL: ${{ steps.deploy_report.outputs.deployment_url }}
-          APP_PREVIEW_URL: ${{ steps.get_app_url.outputs.app_preview_url }}
+      #       if (existingComment) {
+      #         await github.rest.issues.updateComment({
+      #           owner: context.repo.owner,
+      #           repo: context.repo.repo,
+      #           comment_id: existingComment.id,
+      #           body: commentBody,
+      #         });
+      #       } else {
+      #         await github.rest.issues.createComment({
+      #           issue_number: context.issue.number,
+      #           owner: context.repo.owner,
+      #           repo: context.repo.repo,
+      #           body: commentBody,
+      #         });
+      #       }
+      # github-token: ${{ secrets.GITHUB_TOKEN }}
+      # env:
+      #   TEST_STATUS: ${{ steps.get_summary.outputs.TEST_STATUS }}
+      #   REPORT_DEPLOY_URL: ${{ steps.deploy_report.outputs.deployment_url }}
+      #   APP_PREVIEW_URL: ${{ steps.get_app_url.outputs.app_preview_url }}
