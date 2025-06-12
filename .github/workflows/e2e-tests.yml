@@ -195,9 +195,9 @@ jobs:
             const appPreviewUrl = process.env.APP_PREVIEW_URL;
 
             let commentBody = '### 🤖 E2E Test Report\n\n';
-            commentBody += status.includes("PASSED") 
-              ? '✅ **Wszystkie testy zaliczone**\n' 
-              : '❌ **Wykryto błędy w testach**' + (status.includes("results.json not found") ? ' (Brak pliku wyników testów!)' : '') + '\n';
+            commentBody += status.includes('PASSED') 
+              ? '✅ **Wszystkie testy zaliczone**\n'
+              : '❌ **Wykryto błędy w testach**';
 
             if (appPreviewUrl) {
               commentBody += `\n🔹 [**Podgląd aplikacji**](${appPreviewUrl})\n`;
