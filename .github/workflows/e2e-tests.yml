@@ -13,7 +13,7 @@ jobs:
   run-e2e-tests:
     runs-on: ubuntu-latest
     permissions:
-      contents: read
+      contents: read # Zmieniono na read dla minimalnych uprawnień w tym teście
       issues: write
       pull-requests: write
     env:
@@ -73,8 +73,6 @@ jobs:
             exit 1
           fi
 
-          # Weryfikacja, czy Wrangler Pages działa poprawnie i zwraca dane
-          # Wyłączono stdout dla list, aby nie zaśmiecać logów
           PROJECTS_JSON=$(npx wrangler pages project list --json 2>/dev/null || npx wrangler pages list --json 2>/dev/null)
           if [ -z "$PROJECTS_JSON" ]; then
             echo "::error::Nie udało się pobrać listy projektów Cloudflare Pages. Sprawdź token API i uprawnienia."
@@ -89,16 +87,15 @@ jobs:
           echo "Znaleziono ID projektu: $PROJECT_ID"
 
           ATTEMPTS=0
-          MAX_ATTEMPTS=30 # Zwiększono liczbę prób (5 minut)
-          SLEEP_TIME=10   # Oczekiwanie 10 sekund między próbami
+          MAX_ATTEMPTS=10
+          SLEEP_TIME=10
           DEPLOYMENT_URL=""
 
           echo "Oczekiwanie na gotowość wdrożenia Preview dla commita $SOURCE_COMMIT na gałęzi $GITHUB_HEAD_REF..."
           while [ -z "$DEPLOYMENT_URL" ] && [ "$ATTEMPTS" -lt "$MAX_ATTEMPTS" ]; do
             ATTEMPTS=$((ATTEMPTS+1))
-            echo "--- Próba $ATTEMPTS z $MAX_ATTEMPTS (pozostało ~ $(( (MAX_ATTEMPTS - ATTEMPTS) * SLEEP_TIME )) sekund) ---"
+            echo "Próba $ATTEMPTS z $MAX_ATTEMPTS..."
 
-            # Pobieranie deploymentów
             DEPLOYMENTS_JSON=$(curl -s -X GET "https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/pages/projects/$CLOUDFLARE_MAIN_APP_PROJECT_NAME/deployments" \
               -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
               -H "Content-Type: application/json")
@@ -110,26 +107,22 @@ jobs:
               continue
             fi
             
-            echo "Dostępne wdrożenia dla gałęzi $GITHUB_HEAD_REF i commita $SOURCE_COMMIT:"
-            # Wypisujemy statusy i URL-e dla wszystkich pasujących deploymentów, aby debugować
-            echo "$DEPLOYMENTS_JSON" | jq -r --arg commit_hash "$SOURCE_COMMIT" --arg branch "$GITHUB_HEAD_REF" \
-              '.result[] | select(.deployment_trigger.metadata.commit_hash == $commit_hash) | select(.deployment_trigger.metadata.branch == $branch) | "\(.id) - \(.deployment_trigger.metadata.commit_hash) - \(.deployment_trigger.metadata.branch) - Status: \(.latest_stage.status) - URL: \(.url)"' || true
+            echo "Dostępne wdrożenia dla $GITHUB_HEAD_REF:"
+            echo "$DEPLOYMENTS_JSON" | jq -r '.result[] | "\(.id) - \(.deployment_trigger.metadata.commit_hash) - \(.deployment_trigger.metadata.branch) - \(.latest_stage.status) - \(.url)"' || true
 
-            # Szukamy konkretnego deploymentu, który zakończył się sukcesem
-            DEPLOYMENT_INFO=$(echo "$DEPLOYMENTS_JSON" | jq -r --arg commit_hash "$SOURCE_COMMIT" --arg branch "$GITHUB_HEAD_REF" \
-              '.result[] | select(.deployment_trigger.metadata.commit_hash == $commit_hash) | select(.deployment_trigger.metadata.branch == $branch) | select(.latest_stage.status == "success") | .url')
+            DEPLOYMENT_INFO=$(echo "$DEPLOYMENTS_JSON" | jq -r --arg commit_hash "$SOURCE_COMMIT" --arg branch "$GITHUB_HEAD_REF" '.result[] | select(.deployment_trigger.metadata.commit_hash == $commit_hash) | select(.deployment_trigger.metadata.branch == $branch) | select(.latest_stage.status == "success") | .url')
 
             if [ -n "$DEPLOYMENT_INFO" ]; then
               DEPLOYMENT_URL=$DEPLOYMENT_INFO
-              echo "Znaleziono gotowy URL wdrożenia głównej aplikacji: $DEPLOYMENT_URL"
+              echo "Znaleziono URL wdrożenia głównej aplikacji: $DEPLOYMENT_URL"
             else
-              echo "Wdrożenie dla commita $SOURCE_COMMIT na gałęzi $GITHUB_HEAD_REF nie jest jeszcze gotowe (oczekiwany status: success). Oczekiwanie ${SLEEP_TIME} sekund przed kolejną próbą..."
+              echo "Wdrożenie nie jest jeszcze gotowe dla commita $SOURCE_COMMIT na gałęzi $GITHUB_HEAD_REF (oczekiwany status: success). Oczekiwanie ${SLEEP_TIME} sekund..."
               sleep "$SLEEP_TIME"
             fi
           done
 
           if [ -z "$DEPLOYMENT_URL" ]; then
-            echo "::error::Upłynął czas oczekiwania na gotowość wdrożenia głównej aplikacji Cloudflare Pages. Sprawdź logi budowania Cloudflare Pages, aby zdiagnozować problem (np. błąd TinaCMS)."
+            echo "::error::Upłynął czas oczekiwania na gotowość wdrożenia głównej aplikacji. Sprawdź, czy Cloudflare Pages buduje wdrożenie Preview dla tej gałęzi i czy zakończyło się sukcesem."
             exit 1
           fi
 
