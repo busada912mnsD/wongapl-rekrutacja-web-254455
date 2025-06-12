@@ -144,33 +144,32 @@ jobs:
 
       - name: Publish Playwright Report to Cloudflare Pages (e2e project)
         id: deploy_report
-        if: always() && github.event_name == 'pull_request'
+        if: always() && github.event_name == 'pull_request' || github.ref == 'refs/heads/main')
         run: |
           set -euo pipefail
 
-          # Sprawdź, czy folder playwright-report istnieje i jest niepusty
           if [ ! -d "playwright-report" ] || [ -z "$(ls -A playwright-report)" ]; then
             echo "::warning::playwright-report directory is missing or empty. Skipping deployment of report."
-            echo "deployment_url=" >> $GITHUB_OUTPUT # Ustaw pusty URL, aby nie próbować deployować nieistniejącego raportu
-            exit 0 # Zakończ pomyślnie, ale bez wdrożenia raportu
+            echo "deployment_url=" >> $GITHUB_OUTPUT
+            exit 0
           fi
 
           DEPLOY_OUTPUT=$(npx wrangler pages deploy playwright-report \
             --project-name ${{ env.CLOUDFLARE_E2E_REPORT_PROJECT_NAME }} \
-            --branch ${{ github.head_ref }} \
+            --branch ${{ github.head_ref || 'main' }} \
             --commit-hash ${{ github.sha }} \
             2>&1
           )
 
-          echo "Full Wrangler deploy output:"
           echo "$DEPLOY_OUTPUT"
 
           DEPLOYMENT_PREVIEW_URL=$(echo "$DEPLOY_OUTPUT" | grep 'https://' | head -n 1 | awk '{print $NF}')
-
           if [ -z "$DEPLOYMENT_PREVIEW_URL" ]; then
-            # Fallback dla URL, jeśli wrangler nie zwróci go bezpośrednio w output'cie
-            DEPLOYMENT_PREVIEW_URL="https://${{ github.head_ref }}.${{ env.CLOUDFLARE_E2E_REPORT_PROJECT_NAME }}.pages.dev/"
-            echo "Could not parse deployment URL from wrangler output. Using fallback: $DEPLOYMENT_PREVIEW_URL"
+            if [ "${{ github.ref }}" == "refs/heads/main" ]; then
+              DEPLOYMENT_PREVIEW_URL="https://${{ env.CLOUDFLARE_E2E_REPORT_PROJECT_NAME }}.pages.dev/"
+            else
+              DEPLOYMENT_PREVIEW_URL="https://${{ github.head_ref }}.${{ env.CLOUDFLARE_E2E_REPORT_PROJECT_NAME }}.pages.dev/"
+            fi
           fi
           echo "deployment_url=$DEPLOYMENT_PREVIEW_URL" >> $GITHUB_OUTPUT
 
