@@ -11,8 +11,8 @@ const branch = process.env.GITHUB_BRANCH || process.env.VERCEL_GIT_COMMIT_REF ||
 export default defineConfig({
   branch,
 
-  clientId: process.env.PUBLIC_TINA_CLIENT_ID,
-  token: process.env.TINA_TOKEN,
+  clientId: process.env.TINA_CLIENT_ID,
+  token: process.env.TINA_CONTENT_TOKEN,
 
   cmsCallback: (cms) => {
     cms.plugins.add({
