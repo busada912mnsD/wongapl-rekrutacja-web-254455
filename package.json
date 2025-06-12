@@ -13,8 +13,9 @@
     "@astrojs/react": "^4.3.0",
     "@astrojs/rss": "^4.0.11",
     "@astrojs/sitemap": "^3.4.0",
-    "@tanstack/react-virtual": "^3.13.9",
     "@iconify-json/solar": "^1.2.2",
+    "@playwright/test": "^1.53.0",
+    "@tanstack/react-virtual": "^3.13.9",
     "astro": "^5.8.1",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
@@ -26,6 +27,7 @@
   "devDependencies": {
     "@tinacms/cli": "^1.9.8",
     "@types/node": "^22.15.29",
-    "astro-icon": "^1.1.5"
+    "astro-icon": "^1.1.5",
+    "wrangler": "^4.19.2"
   }
 }

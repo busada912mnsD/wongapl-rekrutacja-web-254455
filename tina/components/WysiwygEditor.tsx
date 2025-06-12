@@ -16,14 +16,14 @@ export function WysiwygEditor({ input }) {
 
   return (
     <div className="mb-5 [&_.rsw-ce]:bg-white">
-    <Wysiwyg value={editorValue} onChange={onChange} >
-      <Toolbar>
-        <BtnBold />
-        <BtnItalic />
-        <BtnUnderline />
-        <BtnLink />
-      </Toolbar>
-    </Wysiwyg>
+      <Wysiwyg key={input.name} value={editorValue} onChange={onChange} >
+        <Toolbar>
+          <BtnBold />
+          <BtnItalic />
+          <BtnUnderline />
+          <BtnLink />
+        </Toolbar>
+      </Wysiwyg>
     </div>
   );
 }

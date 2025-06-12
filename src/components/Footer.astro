@@ -10,7 +10,7 @@ const rawFooterText = footerConfig?.footerText;
 
 
 const sanitizedFooterHtml = rawFooterText ? sanitizeHtml(rawFooterText, {
-  allowedTags: [ 'b', 'i', 'u', 'a' ,'p'],
+  allowedTags: [ 'b', 'i', 'u', 'a' ,'p' , 'strong', 'em'],
   allowedAttributes: {
     'a': [ 'href', 'target', 'rel' ]
   },
