@@ -103,7 +103,6 @@ jobs:
           fi
 
           echo "app_preview_url=$DEPLOYMENT_URL" >> $GITHUB_OUTPUT
-        env:
 
       - name: Debug Main App URL
         run: echo "Main App Preview URL: ${{ steps.get_app_url.outputs.app_preview_url }}"
