@@ -147,12 +147,16 @@ jobs:
           script: |
             const status = process.env.TEST_STATUS;
             const reportUrl = process.env.REPORT_DEPLOY_URL; 
+            const appPreviewUrl = process.env.APP_PREVIEW_URL; 
             
             let commentBody = `### E2E Test Report\n\n`;
             if (status === 'PASSED') {
               commentBody += `✅ Wszystkie testy E2E zakończone sukcesem! 🎉\n`;
             } else {
               commentBody += `❌ Testy E2E nie powiodły się. Sprawdź raport, aby uzyskać szczegóły. 🚨\n`;
+            }
+            if (appPreviewUrl) { 
+              commentBody += `\n**[Zobacz podgląd aplikacji](${appPreviewUrl})**\n`;
             }
             commentBody += `\n**[Zobacz pełny raport Playwright](${reportUrl})**\n\n`;
             commentBody += `_Ostatnia aktualizacja: ${new Date().toLocaleString()}_`;
@@ -191,3 +195,4 @@ jobs:
         env:
           TEST_STATUS: ${{ steps.get_summary.outputs.TEST_STATUS }}
           REPORT_DEPLOY_URL: ${{ steps.deploy_report.outputs.deployment_url }}
+          APP_PREVIEW_URL: ${{ steps.get_app_url.outputs.app_preview_url }}
