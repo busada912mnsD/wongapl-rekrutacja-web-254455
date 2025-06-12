@@ -17,9 +17,9 @@ jobs:
       issues: write
       pull-requests: write
     env:
-      BASE_URL: "https://663d1d92.wongapl-rekrutacja-web-254455.pages.dev/"
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      CLOUDFLARE_MAIN_APP_PROJECT_NAME: wongapl-rekrutacja-web-254455
 
     steps:
       - name: Checkout code
@@ -52,12 +52,67 @@ jobs:
       - name: Install Playwright browsers
         run: npx playwright install --with-deps
 
-      - name: Debug BASE_URL
+      - name: Get Main App Preview URL from Cloudflare Pages
+        id: get_app_url
+        if: github.event_name == 'pull_request'
         run: |
-          echo "Value of BASE_URL (from env block): $BASE_URL"
+          npm install -g wrangler
+
+          echo "Sprawdzanie dostępności jq..."
+          if ! command -v jq &> /dev/null
+          then
+              echo "jq nie znaleziono, instaluję jq..."
+              sudo apt-get update
+              sudo apt-get install -y jq
+          fi
+
+          PROJECT_ID=$(wrangler pages project get ${{ env.CLOUDFLARE_MAIN_APP_PROJECT_NAME }} --json | jq -r '.result.id')
+          if [ -z "$PROJECT_ID" ]; then
+            echo "::error::Nie znaleziono ID projektu Cloudflare Pages dla ${{ env.CLOUDFLARE_MAIN_APP_PROJECT_NAME }}"
+            exit 1
+          fi
+
+          echo "Oczekiwanie na gotowość wdrożenia głównej aplikacji..."
+          ATTEMPTS=0
+          MAX_ATTEMPTS=20
+          SLEEP_TIME=15
+          DEPLOYMENT_URL=""
+
+          while [ -z "$DEPLOYMENT_URL" ] && [ "$ATTEMPTS" -lt "$MAX_ATTEMPTS" ]; do
+            ATTEMPTS=$((ATTEMPTS+1))
+            echo "Próba $ATTEMPTS z $MAX_ATTEMPTS..."
+
+            DEPLOYMENTS_JSON=$(curl -s -X GET "https://api.cloudflare.com/client/v4/accounts/${{ env.CLOUDFLARE_ACCOUNT_ID }}/pages/projects/${{ env.CLOUDFLARE_MAIN_APP_PROJECT_NAME }}/deployments?branch=${{ github.head_ref }}" \
+              -H "Authorization: Bearer ${{ env.CLOUDFLARE_API_TOKEN }}" \
+              -H "Content-Type:application/json")
+            
+            DEPLOYMENT_INFO=$(echo "$DEPLOYMENTS_JSON" | jq -r --arg commit_hash "${{ github.sha }}" '.result[] | select(.deployment_trigger.metadata.commit_hash == $commit_hash) | select(.latest_stage.status == "success") | .url')
+
+            if [ -n "$DEPLOYMENT_INFO" ]; then
+              DEPLOYMENT_URL=$DEPLOYMENT_INFO
+              echo "Znaleziono URL wdrożenia głównej aplikacji: $DEPLOYMENT_URL"
+            else
+              echo "Wdrożenie nie jest jeszcze gotowe dla commita ${{ github.sha }} na gałęzi ${{ github.head_ref }}. Oczekiwanie ${SLEEP_TIME} sekund..."
+              sleep "$SLEEP_TIME"
+            fi
+          done
+
+          if [ -z "$DEPLOYMENT_URL" ]; then
+            echo "::error::Upłynął czas oczekiwania na gotowość wdrożenia głównej aplikacji."
+            exit 1
+          fi
+
+          echo "app_preview_url=$DEPLOYMENT_URL" >> $GITHUB_OUTPUT
+        env:
+
+      - name: Debug Main App URL
+        run: echo "Main App Preview URL: ${{ steps.get_app_url.outputs.app_preview_url }}"
+        if: github.event_name == 'pull_request'
 
       - name: Run Playwright tests
         run: npx playwright test --workers=3
+        env:
+          BASE_URL: ${{ steps.get_app_url.outputs.app_preview_url }}
 
       - name: Upload Playwright test results (HTML Report)
         uses: actions/upload-artifact@v4
@@ -73,7 +128,6 @@ jobs:
         run: |
           npm install -g wrangler
           DEPLOY_OUTPUT=$(wrangler pages deploy playwright-report --project-name wongapl-rekrutacja-web-254455-e2e --branch ${{ github.head_ref }} --commit-hash ${{ github.sha }})
-          # Zmieniono sposób wyodrębniania URL-a, aby zawsze pobierać ten z hashem
           REPORT_URL=$(echo "$DEPLOY_OUTPUT" | awk '/Deployment complete! Take a peek over at/ {print $NF}')
           echo "deployment_url=$REPORT_URL" >> $GITHUB_OUTPUT
 
@@ -93,16 +147,16 @@ jobs:
         with:
           script: |
             const status = process.env.TEST_STATUS;
-            const reportUrl = process.env.REPORT_DEPLOY_URL; # To będzie URL z hashem
-
+            const reportUrl = process.env.REPORT_DEPLOY_URL; 
+            
             let commentBody = `### E2E Test Report\n\n`;
             if (status === 'PASSED') {
-              commentBody += `✅ All E2E tests passed! 🎉\n`;
+              commentBody += `✅ Wszystkie testy E2E zakończone sukcesem! 🎉\n`;
             } else {
-              commentBody += `❌ E2E tests failed. Please check the report for details. 🚨\n`;
+              commentBody += `❌ Testy E2E nie powiodły się. Sprawdź raport, aby uzyskać szczegóły. 🚨\n`;
             }
-            commentBody += `\n**[View Full Playwright Report](${reportUrl})**\n\n`;
-            commentBody += `_Last updated: ${new Date().toLocaleString()}_`;
+            commentBody += `\n**[Zobacz pełny raport Playwright](${reportUrl})**\n\n`;
+            commentBody += `_Ostatnia aktualizacja: ${new Date().toLocaleString()}_`;
 
             const { data: comments } = await github.rest.issues.listComments({
               owner: context.repo.owner,
