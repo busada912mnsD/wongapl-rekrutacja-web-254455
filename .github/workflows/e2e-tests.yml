@@ -54,6 +54,9 @@ jobs:
       - name: Install Playwright browsers
         run: npx playwright install --with-deps
 
+      - name: Install Cloudflare Wrangler
+        run: npm install -g wrangler@latest
+
       - name: Get Main App Preview URL from Cloudflare Pages
         id: get_app_url
         if: github.event_name == 'pull_request'
@@ -63,8 +66,13 @@ jobs:
         run: |
           set -euo pipefail
 
+          if ! command -v jq &> /dev/null; then
+            echo "jq not found, installing..."
+            sudo apt-get update
+            sudo apt-get install -y jq
+          fi
+
           ATTEMPTS=0
-          # Czas oczekiwania: 90 prób * 10 sekund = 900 sekund (15 minut)
           MAX_ATTEMPTS=90
           SLEEP_TIME=10
           DEPLOYMENT_URL=""
@@ -84,7 +92,11 @@ jobs:
               sleep "$SLEEP_TIME"
               continue
             fi
-
+            
+            echo "Available deployments for branch $GITHUB_HEAD_REF and commit $SOURCE_COMMIT:"
+            echo "$DEPLOYMENTS_JSON" | jq -r --arg commit_hash "$SOURCE_COMMIT" --arg branch "$GITHUB_HEAD_REF" \
+              '.result[] | select(.deployment_trigger.metadata.commit_hash == $commit_hash) | select(.deployment_trigger.metadata.branch == $branch) | "\(.id) - \(.deployment_trigger.metadata.commit_hash) - \(.deployment_trigger.metadata.branch) - Status: \(.latest_stage.status) - URL: \(.url)"' || true
+            
             DEPLOYMENT_URL=$(echo "$DEPLOYMENTS_JSON" | jq -r --arg commit_hash "$SOURCE_COMMIT" --arg branch "$GITHUB_HEAD_REF" \
               '.result[] | select(.deployment_trigger.metadata.commit_hash == $commit_hash and .deployment_trigger.metadata.branch == $branch and .latest_stage.status == "success") | .url')
 
@@ -125,16 +137,24 @@ jobs:
         id: deploy_report
         if: always() && github.event_name == 'pull_request'
         run: |
-          npm install -g wrangler@latest
-          DEPLOY_JSON=$(npx wrangler pages deploy playwright-report \
+          set -euo pipefail
+
+          echo "Attempting to deploy Playwright report..."
+          DEPLOY_OUTPUT=$(npx wrangler pages deploy playwright-report \
             --project-name wongapl-rekrutacja-web-254455-e2e \
             --branch ${{ github.head_ref }} \
             --commit-hash ${{ github.sha }} \
-            --json)
+            2>&1
+          )
 
-          REPORT_URL=$(echo "$DEPLOY_JSON" | jq -r '.url')
+          echo "Full Wrangler deploy output:"
+          echo "$DEPLOY_OUTPUT"
+
+          REPORT_URL=$(echo "$DEPLOY_OUTPUT" | grep -o -E "https?:\/\/[^\s]+" | tail -n 1)
+
           if [ -z "$REPORT_URL" ]; then
-            echo "::error::Error publishing the report"
+            echo "::error::Error publishing the report or failed to extract URL from wrangler output."
+            echo "Failed to extract URL. Check Cloudflare Pages build logs for the e2e project."
             exit 1
           fi
 
@@ -144,13 +164,12 @@ jobs:
         id: get_summary
         if: always() && github.event_name == 'pull_request'
         run: |
-          # Zapewnia, że plik JSON istnieje, aby uniknąć błędów
           if [ ! -f playwright-report/results.json ]; then
+              echo "::warning::playwright-report/results.json not found. Cannot determine test status accurately."
               echo "TEST_STATUS=ERROR: results.json not found" >> $GITHUB_OUTPUT
               exit 0
           fi
 
-          # Sprawdzenie, czy są jakiekolwiek testy, które zawiodły
           FAILED_COUNT=$(jq '.stats.failures' playwright-report/results.json)
 
           if [ "$FAILED_COUNT" -gt 0 ]; then
@@ -173,7 +192,7 @@ jobs:
             let commentBody = '### 🤖 E2E Test Report\n\n';
             commentBody += status.includes("PASSED") 
               ? '✅ **Wszystkie testy zaliczone**\n' 
-              : '❌ **Wykryto błędy w testach**\n';
+              : '❌ **Wykryto błędy w testach**' + (status.includes("results.json not found") ? ' (Brak pliku wyników testów!)' : '') + '\n';
 
             if (appPreviewUrl) {
               commentBody += `\n🔹 [**Podgląd aplikacji**](${appPreviewUrl})\n`;
@@ -183,7 +202,7 @@ jobs:
               commentBody += `📊 [**Pełny raport z testów**](${reportUrl})\n`;
             }
 
-            commentBody += `\n*Ostatnia aktualizacja: ${new Date().toLocaleString('pl-PL')}*`;
+            commentBody += `\n*Ostatnia aktualizacja: ${new Date().toLocaleString('pl-PL', { timeZone: 'Europe/Warsaw' })}*`;
 
             const { data: comments } = await github.rest.issues.listComments({
               owner: context.repo.owner,
