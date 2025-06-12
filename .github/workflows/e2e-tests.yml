@@ -1,229 +1,241 @@
 name: E2E Tests
 
 on:
-  pull_request:
-    branches:
-      - main
-    types: [opened, synchronize, reopened]
-  push:
-    branches:
-      - main
+  pull_request:
+    branches:
+      - main
+    types: [opened, synchronize, reopened]
+  push:
+    branches:
+      - main
 
 jobs:
-  run-e2e-tests:
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
-      issues: write
-      pull-requests: write
-    env:
-      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-      CLOUDFLARE_MAIN_APP_PROJECT_NAME: busada912mnsd-wongapl-rekrutacja-web-254455
-      CLOUDFLARE_E2E_REPORT_PROJECT_NAME: busada912mnsd-wongapl-rekrutacja-web-254455-e2e
-      E2E_REPORT_STATIC_URL: https://busada912mnsd-wongapl-rekrutacja-web-254455-e2e.pages.dev/
+  run-e2e-tests:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      issues: write
+      pull-requests: write
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      CLOUDFLARE_MAIN_APP_PROJECT_NAME: busada912mnsd-wongapl-rekrutacja-web-254455
+      CLOUDFLARE_E2E_REPORT_PROJECT_NAME: busada912mnsd-wongapl-rekrutacja-web-254455-e2e
 
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
 
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: 20
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
 
-      - name: Cache Node.js modules
-        uses: actions/cache@v4
-        id: npm-cache
-        with:
-          path: ~/.npm
-          key: ${{ runner.os }}-node-${{ hashFiles('**/package-lock.json') }}
-          restore-keys: |
-            ${{ runner.os }}-node-
+      - name: Cache Node.js modules
+        uses: actions/cache@v4
+        id: npm-cache
+        with:
+          path: ~/.npm
+          key: ${{ runner.os }}-node-${{ hashFiles('**/package-lock.json') }}
+          restore-keys: |
+            ${{ runner.os }}-node-
 
-      - name: Install dependencies
-        run: npm install --legacy-peer-deps
+      - name: Install dependencies
+        run: npm install --legacy-peer-deps
 
-      - name: Cache Playwright browsers
-        uses: actions/cache@v4
-        id: playwright-cache
-        with:
-          path: ~/.cache/ms-playwright
-          key: ${{ runner.os }}-playwright-${{ hashFiles('**/package.json') }}
-          restore-keys: |
-            ${{ runner.os }}-playwright-
+      - name: Cache Playwright browsers
+        uses: actions/cache@v4
+        id: playwright-cache
+        with:
+          path: ~/.cache/ms-playwright
+          key: ${{ runner.os }}-playwright-${{ hashFiles('**/package.json') }}
+          restore-keys: |
+            ${{ runner.os }}-playwright-
 
-      - name: Install Playwright browsers
-        run: npx playwright install --with-deps
+      - name: Install Playwright browsers
+        run: npx playwright install --with-deps
 
-      - name: Install Cloudflare Wrangler
-        run: npm install -g wrangler@latest
+      - name: Install Cloudflare Wrangler
+        run: npm install -g wrangler@latest
 
-      - name: Get Main App Preview URL from Cloudflare Pages
-        id: get_app_url
-        if: github.event_name == 'pull_request'
-        env:
-          SOURCE_COMMIT: ${{ github.event.pull_request.head.sha }}
-          GITHUB_HEAD_REF: ${{ github.head_ref }}
-        run: |
-          set -euo pipefail
+      - name: Get Main App Preview URL from Cloudflare Pages
+        id: get_app_url
+        if: github.event_name == 'pull_request'
+        env:
+          SOURCE_COMMIT: ${{ github.event.pull_request.head.sha }}
+          GITHUB_HEAD_REF: ${{ github.head_ref }}
+        run: |
+          set -euo pipefail
 
-          if ! command -v jq &> /dev/null; then
-            echo "jq not found, installing..."
-            sudo apt-get update
-            sudo apt-get install -y jq
-          fi
+          if ! command -v jq &> /dev/null; then
+            echo "jq not found, installing..."
+            sudo apt-get update
+            sudo apt-get install -y jq
+          fi
 
-          ATTEMPTS=0
-          MAX_ATTEMPTS=90
-          SLEEP_TIME=10
-          DEPLOYMENT_URL=""
+          ATTEMPTS=0
+          MAX_ATTEMPTS=90
+          SLEEP_TIME=10
+          DEPLOYMENT_URL=""
 
-          echo "Waiting for Preview deployment for commit $SOURCE_COMMIT on branch $GITHUB_HEAD_REF..."
-          while [ -z "$DEPLOYMENT_URL" ] && [ "$ATTEMPTS" -lt "$MAX_ATTEMPTS" ]; do
-            ATTEMPTS=$((ATTEMPTS+1))
-            echo "--- Attempt $ATTEMPTS of $MAX_ATTEMPTS (approx. $(( (MAX_ATTEMPTS - ATTEMPTS) * SLEEP_TIME )) seconds remaining) ---"
+          echo "Waiting for Preview deployment for commit $SOURCE_COMMIT on branch $GITHUB_HEAD_REF..."
+          while [ -z "$DEPLOYMENT_URL" ] && [ "$ATTEMPTS" -lt "$MAX_ATTEMPTS" ]; do
+            ATTEMPTS=$((ATTEMPTS+1))
+            echo "--- Attempt $ATTEMPTS of $MAX_ATTEMPTS (approx. $(( (MAX_ATTEMPTS - ATTEMPTS) * SLEEP_TIME )) seconds remaining) ---"
 
-            DEPLOYMENTS_JSON=$(curl -s -X GET "https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/pages/projects/$CLOUDFLARE_MAIN_APP_PROJECT_NAME/deployments" \
-              -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
-              -H "Content-Type: application/json")
+            DEPLOYMENTS_JSON=$(curl -s -X GET "https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/pages/projects/$CLOUDFLARE_MAIN_APP_PROJECT_NAME/deployments" \
+              -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
+              -H "Content-Type: application/json")
 
-            if ! echo "$DEPLOYMENTS_JSON" | jq -e '.success' >/dev/null 2>&1; then
-              echo "::warning::Invalid response from Cloudflare API or API error (e.g., token)."
-              echo "API Response: $DEPLOYMENTS_JSON"
-              sleep "$SLEEP_TIME"
-              continue
-            fi
-            
-            echo "Available deployments for branch $GITHUB_HEAD_REF and commit $SOURCE_COMMIT:"
-            echo "$DEPLOYMENTS_JSON" | jq -r --arg commit_hash "$SOURCE_COMMIT" --arg branch "$GITHUB_HEAD_REF" \
-              '.result[] | select(.deployment_trigger.metadata.commit_hash == $commit_hash) | select(.deployment_trigger.metadata.branch == $branch) | "\(.id) - \(.deployment_trigger.metadata.commit_hash) - \(.deployment_trigger.metadata.branch) - Status: \(.latest_stage.status) - URL: \(.url) - Branch Preview URL: \(.branch_preview_url)"' || true
-            
-            DEPLOYMENT_URL=$(echo "$DEPLOYMENTS_JSON" | jq -r --arg commit_hash "$SOURCE_COMMIT" --arg branch "$GITHUB_HEAD_REF" \
-              '.result[] | select(.deployment_trigger.metadata.commit_hash == $commit_hash and .deployment_trigger.metadata.branch == $branch and .latest_stage.status == "success") | .branch_preview_url // empty')
+            if ! echo "$DEPLOYMENTS_JSON" | jq -e '.success' >/dev/null 2>&1; then
+              echo "::warning::Invalid response from Cloudflare API or API error (e.g., token)."
+              echo "API Response: $DEPLOYMENTS_JSON"
+              sleep "$SLEEP_TIME"
+              continue
+            fi
+            
+            echo "Available deployments for branch $GITHUB_HEAD_REF and commit $SOURCE_COMMIT:"
+            echo "$DEPLOYMENTS_JSON" | jq -r --arg commit_hash "$SOURCE_COMMIT" --arg branch "$GITHUB_HEAD_REF" \
+              '.result[] | select(.deployment_trigger.metadata.commit_hash == $commit_hash) | select(.deployment_trigger.metadata.branch == $branch) | "\(.id) - \(.deployment_trigger.metadata.commit_hash) - \(.deployment_trigger.metadata.branch) - Status: \(.latest_stage.status) - URL: \(.url) - Branch Preview URL: \(.branch_preview_url)"' || true
+            
+            # Zmiana: Dodano operator // empty, aby jq zwracało pusty string zamiast "null"
+            DEPLOYMENT_URL=$(echo "$DEPLOYMENTS_JSON" | jq -r --arg commit_hash "$SOURCE_COMMIT" --arg branch "$GITHUB_HEAD_REF" \
+              '.result[] | select(.deployment_trigger.metadata.commit_hash == $commit_hash and .deployment_trigger.metadata.branch == $branch and .latest_stage.status == "success") | .branch_preview_url // empty')
 
-            if [ -z "$DEPLOYMENT_URL" ]; then
-                DEPLOYMENT_URL=$(echo "$DEPLOYMENTS_JSON" | jq -r --arg commit_hash "$SOURCE_COMMIT" --arg branch "$GITHUB_HEAD_REF" \
-                  '.result[] | select(.deployment_trigger.metadata.commit_hash == $commit_hash and .deployment_trigger.metadata.branch == $branch and .latest_stage.status == "success") | .url // empty')
-                if [ -n "$DEPLOYMENT_URL" ]; then
-                    echo "Found successful deployment URL (using .url as fallback) for the main app: $DEPLOYMENT_URL"
-                else
-                    echo "Deployment for commit $SOURCE_COMMIT on branch $GITHUB_HEAD_REF is not ready yet (waiting for status: success). Retrying in ${SLEEP_TIME} seconds..."
-                    sleep "$SLEEP_TIME"
-                fi
-            else
-              echo "Found successful deployment Branch Preview URL for the main app: $DEPLOYMENT_URL"
-            fi
-          done
+            if [ -z "$DEPLOYMENT_URL" ]; then
+                # Zmiana: Dodano operator // empty, aby jq zwracało pusty string zamiast "null"
+                DEPLOYMENT_URL=$(echo "$DEPLOYMENTS_JSON" | jq -r --arg commit_hash "$SOURCE_COMMIT" --arg branch "$GITHUB_HEAD_REF" \
+                  '.result[] | select(.deployment_trigger.metadata.commit_hash == $commit_hash and .deployment_trigger.metadata.branch == $branch and .latest_stage.status == "success") | .url // empty')
+                if [ -n "$DEPLOYMENT_URL" ]; then
+                    echo "Found successful deployment URL (using .url as fallback) for the main app: $DEPLOYMENT_URL"
+                else
+                    echo "Deployment for commit $SOURCE_COMMIT on branch $GITHUB_HEAD_REF is not ready yet (waiting for status: success). Retrying in ${SLEEP_TIME} seconds..."
+                    sleep "$SLEEP_TIME"
+                fi
+            else
+              echo "Found successful deployment Branch Preview URL for the main app: $DEPLOYMENT_URL"
+            fi
+          done
 
-          if [ -z "$DEPLOYMENT_URL" ]; then
-            echo "::error::Timed out waiting for the Cloudflare Pages deployment to be ready (15 minutes). Check the Cloudflare build logs for issues."
-            exit 1
-            exit 1
-          fi
+          if [ -z "$DEPLOYMENT_URL" ]; then
+            echo "::error::Timed out waiting for the Cloudflare Pages deployment to be ready (15 minutes). Check the Cloudflare build logs for issues."
+            exit 1
+          fi
 
-          echo "app_preview_url=$DEPLOYMENT_URL" >> $GITHUB_OUTPUT
+          echo "app_preview_url=$DEPLOYMENT_URL" >> $GITHUB_OUTPUT
 
-      - name: Debug Main App URL
-        if: github.event_name == 'pull_request'
-        run: |
-          echo "Main App Preview URL: ${{ steps.get_app_url.outputs.app_preview_url }}"
+      - name: Debug Main App URL
+        if: github.event_name == 'pull_request'
+        run: |
+          echo "Main App Preview URL: ${{ steps.get_app_url.outputs.app_preview_url }}"
 
-      - name: Run Playwright tests
-        run: npx playwright test --workers=3 --reporter=html
-        env:
-          BASE_URL: ${{ steps.get_app_url.outputs.app_preview_url }}
+      - name: Run Playwright tests
+        run: npx playwright test --workers=3
+        env:
+          BASE_URL: ${{ steps.get_app_url.outputs.app_preview_url }}
 
-      - name: Upload Playwright test results (HTML Report)
-        uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: playwright-report
-          path: playwright-report/
-          retention-days: 5
+      - name: Upload Playwright test results (HTML Report)
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: playwright-report
+          path: playwright-report/
+          retention-days: 5
 
-      - name: Publish Playwright Report to Cloudflare Pages (e2e project)
-        id: deploy_report
-        if: always() && github.event_name == 'pull_request'
-        run: |
-          set -euo pipefail
+      - name: Publish Playwright Report to Cloudflare Pages (e2e project)
+        id: deploy_report
+        if: always() && github.event_name == 'pull_request'
+        run: |
+          set -euo pipefail
 
-          npx wrangler pages deploy playwright-report \
-            --project-name ${{ env.CLOUDFLARE_E2E_REPORT_PROJECT_NAME }} \
-            --branch main \
-            --commit-hash ${{ github.sha }}
+          DEPLOY_OUTPUT=$(npx wrangler pages deploy playwright-report \
+            --project-name ${{ env.CLOUDFLARE_E2E_REPORT_PROJECT_NAME }} \
+            --branch ${{ github.head_ref }} \
+            --commit-hash ${{ github.sha }} \
+            2>&1
+          )
 
-      - name: Get Playwright Test Summary
-        id: get_summary
-        if: always() && github.event_name == 'pull_request'
-        run: |
-          if [ ! -f playwright-report/results.json ]; then
-              echo "::warning::playwright-report/results.json not found. Cannot determine test status accurately."
-              echo "TEST_STATUS=ERROR: results.json not found" >> $GITHUB_OUTPUT
-              exit 0
-          fi
+          echo "Full Wrangler deploy output:"
+          echo "$DEPLOY_OUTPUT"
 
-          FAILED_COUNT=$(jq '.stats.failures' playwright-report/results.json)
+          DEPLOYMENT_PREVIEW_URL=$(echo "$DEPLOY_OUTPUT" | grep 'https://' | head -n 1 | awk '{print $NF}')
 
-          if [ "$FAILED_COUNT" -gt 0 ]; then
-              status="FAILED"
-          else
-              status="PASSED"
-          fi
+          if [ -z "$DEPLOYMENT_PREVIEW_URL" ]; then
+            DEPLOYMENT_PREVIEW_URL="https://${{ github.head_ref }}.${{ env.CLOUDFLARE_E2E_REPORT_PROJECT_NAME }}.pages.dev/"
+          fi
+          echo "deployment_url=$DEPLOYMENT_PREVIEW_URL" >> $GITHUB_OUTPUT
 
-          echo "TEST_STATUS=$status" >> $GITHUB_OUTPUT
+      - name: Get Playwright Test Summary
+        id: get_summary
+        if: always() && github.event_name == 'pull_request'
+        run: |
+          if [ ! -f playwright-report/results.json ]; then
+              echo "::warning::playwright-report/results.json not found. Cannot determine test status accurately."
+              echo "TEST_STATUS=ERROR: results.json not found" >> $GITHUB_OUTPUT
+              exit 0
+          fi
 
-      - name: Comment on Pull Request
-        uses: actions/github-script@v7
-        if: always() && github.event_name == 'pull_request'
-        with:
-          script: |
-            const status = process.env.TEST_STATUS;
-            const appPreviewUrl = process.env.APP_PREVIEW_URL;
-            const reportUrl = process.env.E2E_REPORT_STATIC_URL;
+          FAILED_COUNT=$(jq '.stats.failures' playwright-report/results.json)
 
-            let commentBody = '### 🤖 E2E Test Report\n\n';
-            commentBody += status.includes("PASSED")
-              ? '✅ **Wszystkie testy zaliczone**\n'
-              : '❌ **Wykryto błędy w testach**' + (status.includes("results.json not found") ? ' (Brak pliku wyników testów!)' : '') + '\n';
+          if [ "$FAILED_COUNT" -gt 0 ]; then
+              status="FAILED"
+          else
+              status="PASSED"
+          fi
 
-            if (appPreviewUrl) {
-              commentBody += `\n🔹 [**Podgląd aplikacji**](${appPreviewUrl})\n`;
-            }
+          echo "TEST_STATUS=$status" >> $GITHUB_OUTPUT
 
-            if (reportUrl) {
-              commentBody += `📊 [**Pełny raport z testów**](${reportUrl})\n`;
-            }
+      - name: Comment on Pull Request
+        uses: actions/github-script@v7
+        if: always() && github.event_name == 'pull_request'
+        with:
+          script: |
+            const status = process.env.TEST_STATUS;
+            const reportUrl = process.env.REPORT_DEPLOY_URL;
+            const appPreviewUrl = process.env.APP_PREVIEW_URL;
 
-            commentBody += `\n*Ostatnia aktualizacja: ${new Date().toLocaleString('pl-PL', { timeZone: 'Europe/Warsaw' })}*`;
+            let commentBody = '### 🤖 E2E Test Report\n\n';
+            commentBody += status.includes("PASSED") 
+              ? '✅ **Wszystkie testy zaliczone**\n' 
+              : '❌ **Wykryto błędy w testach**' + (status.includes("results.json not found") ? ' (Brak pliku wyników testów!)' : '') + '\n';
 
-            const { data: comments } = await github.rest.issues.listComments({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              issue_number: context.issue.number,
-            });
+            if (appPreviewUrl) {
+              commentBody += `\n🔹 [**Podgląd aplikacji**](${appPreviewUrl})\n`;
+            }
 
-            const existingComment = comments.find(comment =>
-              comment.user.login === 'github-actions[bot]' && comment.body.includes('E2E Test Report')
-            );
+            if (reportUrl) {
+              commentBody += `📊 [**Pełny raport z testów**](${reportUrl})\n`;
+            }
 
-            if (existingComment) {
-              await github.rest.issues.updateComment({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                comment_id: existingComment.id,
-                body: commentBody,
-              });
-            } else {
-              await github.rest.issues.createComment({
-                issue_number: context.issue.number,
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                body: commentBody,
-              });
-            }
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-        env:
-          TEST_STATUS: ${{ steps.get_summary.outputs.TEST_STATUS }}
-          REPORT_DEPLOY_URL: ${{ env.E2E_REPORT_STATIC_URL }}
-          APP_PREVIEW_URL: ${{ steps.get_app_url.outputs.app_preview_url }}
+            commentBody += `\n*Ostatnia aktualizacja: ${new Date().toLocaleString('pl-PL', { timeZone: 'Europe/Warsaw' })}*`;
+
+            const { data: comments } = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+            });
+
+            const existingComment = comments.find(comment =>
+              comment.user.login === 'github-actions[bot]' && comment.body.includes('E2E Test Report')
+            );
+
+            if (existingComment) {
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: existingComment.id,
+                body: commentBody,
+              });
+            } else {
+              await github.rest.issues.createComment({
+                issue_number: context.issue.number,
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                body: commentBody,
+              });
+            }
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+        env:
+          TEST_STATUS: ${{ steps.get_summary.outputs.TEST_STATUS }}
+          REPORT_DEPLOY_URL: ${{ steps.deploy_report.outputs.deployment_url }}
+          APP_PREVIEW_URL: ${{ steps.get_app_url.outputs.app_preview_url }}
