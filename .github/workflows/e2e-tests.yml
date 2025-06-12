@@ -10,7 +10,35 @@ on:
       - main
 
 jobs:
+  setup:
+    runs-on: ubuntu-latest
+    outputs:
+      node-cache-key: ${{ steps.node-cache.outputs.key }}
+      playwright-cache-key: ${{ steps.playwright-cache.outputs.key }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Create Node.js modules cache
+        id: node-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.npm
+          key: ${{ runner.os }}-node-${{ hashFiles('**/package-lock.json') }}
+          restore-keys: |
+            ${{ runner.os }}-node-
+
+      - name: Create Playwright browsers cache
+        id: playwright-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: ${{ runner.os }}-playwright-${{ hashFiles('**/package.json') }}
+          restore-keys: |
+            ${{ runner.os }}-playwright-
+
   run-e2e-tests:
+    needs: setup
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -30,22 +58,22 @@ jobs:
         with:
           node-version: 20
 
-      - name: Cache Node.js modules
+      - name: Restore Node.js modules cache
         uses: actions/cache@v4
         with:
           path: ~/.npm
-          key: ${{ runner.os }}-node-${{ hashFiles('**/package-lock.json') }}
+          key: ${{ needs.setup.outputs.node-cache-key }}
           restore-keys: |
             ${{ runner.os }}-node-
 
       - name: Install dependencies
         run: npm install --legacy-peer-deps
 
-      - name: Cache Playwright browsers
+      - name: Restore Playwright browsers cache
         uses: actions/cache@v4
         with:
           path: ~/.cache/ms-playwright
-          key: ${{ runner.os }}-playwright-${{ hashFiles('**/package.json') }}
+          key: ${{ needs.setup.outputs.playwright-cache-key }}
           restore-keys: |
             ${{ runner.os }}-playwright-
 
@@ -61,81 +89,52 @@ jobs:
         run: |
           set -euo pipefail
 
-          if ! command -v jq &> /dev/null; then
-            sudo apt-get update
-            sudo apt-get install -y jq
-          fi
-
-          npm install -g wrangler@latest
-
-          if ! command -v wrangler &> /dev/null; then
-            echo "::error::Wrangler is not found in PATH after installation."
-            exit 1
-          fi
-
-          PROJECTS_JSON=$(npx wrangler pages project list --json 2>/dev/null || npx wrangler pages list --json 2>/dev/null)
-          if [ -z "$PROJECTS_JSON" ]; then
-            echo "::error::Nie udało się pobrać listy projektów Cloudflare Pages. Sprawdź token API i uprawnienia."
-            exit 1
-          fi
-
-          PROJECT_ID=$(echo "$PROJECTS_JSON" | jq -r --arg PROJECT_NAME "$CLOUDFLARE_MAIN_APP_PROJECT_NAME" '.[] | select(.name == $PROJECT_NAME) | .id')
-          if [ -z "$PROJECT_ID" ]; then
-            echo "::error::Nie znaleziono ID projektu Cloudflare Pages dla $CLOUDFLARE_MAIN_APP_PROJECT_NAME. Sprawdź nazwę projektu."
-            exit 1
-          fi
-          echo "Znaleziono ID projektu: $PROJECT_ID"
-
           ATTEMPTS=0
-          MAX_ATTEMPTS=40 # Zwiększono liczbę prób (około 6-7 minut oczekiwania)
-          SLEEP_TIME=10   # Oczekiwanie 10 sekund między próbami
+          # Czas oczekiwania: 90 prób * 10 sekund = 900 sekund (15 minut)
+          MAX_ATTEMPTS=90
+          SLEEP_TIME=10
           DEPLOYMENT_URL=""
 
-          echo "Oczekiwanie na gotowość wdrożenia Preview dla commita $SOURCE_COMMIT na gałęzi $GITHUB_HEAD_REF..."
+          echo "Waiting for Preview deployment for commit $SOURCE_COMMIT on branch $GITHUB_HEAD_REF..."
           while [ -z "$DEPLOYMENT_URL" ] && [ "$ATTEMPTS" -lt "$MAX_ATTEMPTS" ]; do
             ATTEMPTS=$((ATTEMPTS+1))
-            echo "--- Próba $ATTEMPTS z $MAX_ATTEMPTS (pozostało ~ $(( (MAX_ATTEMPTS - ATTEMPTS) * SLEEP_TIME )) sekund) ---"
+            echo "--- Attempt $ATTEMPTS of $MAX_ATTEMPTS (approx. $(( (MAX_ATTEMPTS - ATTEMPTS) * SLEEP_TIME )) seconds remaining) ---"
 
             DEPLOYMENTS_JSON=$(curl -s -X GET "https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/pages/projects/$CLOUDFLARE_MAIN_APP_PROJECT_NAME/deployments" \
               -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
               -H "Content-Type: application/json")
-            
+
             if ! echo "$DEPLOYMENTS_JSON" | jq -e '.success' >/dev/null 2>&1; then
-              echo "::warning::Nieprawidłowa odpowiedź z API Cloudflare lub błąd w API (np. token)."
-              echo "Odpowiedź API: $DEPLOYMENTS_JSON"
+              echo "::warning::Invalid response from Cloudflare API or API error (e.g., token)."
+              echo "API Response: $DEPLOYMENTS_JSON"
               sleep "$SLEEP_TIME"
               continue
             fi
-            
-            echo "Dostępne wdrożenia dla gałęzi $GITHUB_HEAD_REF i commita $SOURCE_COMMIT:"
-            echo "$DEPLOYMENTS_JSON" | jq -r --arg commit_hash "$SOURCE_COMMIT" --arg branch "$GITHUB_HEAD_REF" \
-              '.result[] | select(.deployment_trigger.metadata.commit_hash == $commit_hash) | select(.deployment_trigger.metadata.branch == $branch) | "\(.id) - \(.deployment_trigger.metadata.commit_hash) - \(.deployment_trigger.metadata.branch) - Status: \(.latest_stage.status) - URL: \(.url)"' || true
 
-            DEPLOYMENT_INFO=$(echo "$DEPLOYMENTS_JSON" | jq -r --arg commit_hash "$SOURCE_COMMIT" --arg branch "$GITHUB_HEAD_REF" \
-              '.result[] | select(.deployment_trigger.metadata.commit_hash == $commit_hash) | select(.deployment_trigger.metadata.branch == $branch) | select(.latest_stage.status == "success") | .url')
+            DEPLOYMENT_URL=$(echo "$DEPLOYMENTS_JSON" | jq -r --arg commit_hash "$SOURCE_COMMIT" --arg branch "$GITHUB_HEAD_REF" \
+              '.result[] | select(.deployment_trigger.metadata.commit_hash == $commit_hash and .deployment_trigger.metadata.branch == $branch and .latest_stage.status == "success") | .url')
 
-            if [ -n "$DEPLOYMENT_INFO" ]; then
-              DEPLOYMENT_URL=$DEPLOYMENT_INFO
-              echo "Znaleziono gotowy URL wdrożenia głównej aplikacji: $DEPLOYMENT_URL"
+            if [ -n "$DEPLOYMENT_URL" ]; then
+              echo "Found successful deployment URL for the main app: $DEPLOYMENT_URL"
             else
-              echo "Wdrożenie dla commita $SOURCE_COMMIT na gałęzi $GITHUB_HEAD_REF nie jest jeszcze gotowe (oczekiwany status: success). Oczekiwanie ${SLEEP_TIME} sekund przed kolejną próbą..."
+              echo "Deployment for commit $SOURCE_COMMIT on branch $GITHUB_HEAD_REF is not ready yet (waiting for status: success). Retrying in ${SLEEP_TIME} seconds..."
               sleep "$SLEEP_TIME"
             fi
           done
 
           if [ -z "$DEPLOYMENT_URL" ]; then
-            echo "::error::Upłynął czas oczekiwania na gotowość wdrożenia głównej aplikacji Cloudflare Pages. Sprawdź logi budowania Cloudflare Pages, aby zdiagnozować problem (np. wcześniejszy błąd TinaCMS)."
+            echo "::error::Timed out waiting for the Cloudflare Pages deployment to be ready (15 minutes). Check the Cloudflare build logs for issues."
             exit 1
           fi
 
           echo "app_preview_url=$DEPLOYMENT_URL" >> $GITHUB_OUTPUT
 
       - name: Debug Main App URL
+        if: github.event_name == 'pull_request'
         run: |
           echo "Main App Preview URL: ${{ steps.get_app_url.outputs.app_preview_url }}"
           echo "Source Commit: ${{ env.SOURCE_COMMIT }}"
           echo "Head Ref: ${{ env.GITHUB_HEAD_REF }}"
-        if: github.event_name == 'pull_request'
 
       - name: Run Playwright tests
         run: npx playwright test --workers=3
@@ -154,6 +153,7 @@ jobs:
         id: deploy_report
         if: github.event_name == 'pull_request'
         run: |
+          npm install -g wrangler@latest
           DEPLOY_JSON=$(npx wrangler pages deploy playwright-report \
             --project-name wongapl-rekrutacja-web-254455-e2e \
             --branch ${{ github.head_ref }} \
@@ -162,7 +162,7 @@ jobs:
 
           REPORT_URL=$(echo "$DEPLOY_JSON" | jq -r '.url')
           if [ -z "$REPORT_URL" ]; then
-            echo "::error::Błąd podczas publikacji raportu"
+            echo "::error::Error publishing the report"
             exit 1
           fi
 
@@ -175,13 +175,13 @@ jobs:
           if [ -f "test-results.json" ]; then
             status=$(jq -r '[.suites[].specs[].tests[].results[].status] | if any(. == "failed") then "FAILED" else "PASSED" end' test-results.json)
           else
-            status="ERROR: Brak wyników"
+            status="ERROR: Results not found"
           fi
           echo "TEST_STATUS=$status" >> $GITHUB_OUTPUT
 
       - name: Comment on Pull Request
         uses: actions/github-script@v7
-        if: github.event_name == 'pull_request'
+        if: always() && github.event_name == 'pull_request'
         with:
           script: |
             const status = process.env.TEST_STATUS;
@@ -190,18 +190,18 @@ jobs:
 
             let commentBody = '### E2E Test Report\n\n';
             commentBody += status.includes("PASSED") 
-              ? '✅ **WSZYSTKIE TESTY ZALICZONE**\n' 
-              : '❌ **WYKRYTO BŁĘDY W TESTACH**\n';
+              ? '✅ **ALL TESTS PASSED**\n' 
+              : '❌ **TEST ERRORS DETECTED**\n';
 
             if (appPreviewUrl) {
-              commentBody += `🔹 [Podgląd aplikacji](${appPreviewUrl})\n`;
+              commentBody += `🔹 [Application Preview](${appPreviewUrl})\n`;
             }
 
             if (reportUrl) {
-              commentBody += `📊 [Pełny raport testów](${reportUrl})\n`;
+              commentBody += `📊 [Full Test Report](${reportUrl})\n`;
             }
 
-            commentBody += `\n_Ostatnia aktualizacja: ${new Date().toLocaleString()}_`;
+            commentBody += `\n_Last updated: ${new Date().toLocaleString()}_`;
 
             const { data: comments } = await github.rest.issues.listComments({
               owner: context.repo.owner,
