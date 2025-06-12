@@ -12,6 +12,10 @@ on:
 jobs:
   run-e2e-tests:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      issues: write
+      pull-requests: write
     env:
       BASE_URL: "https://663d1d92.wongapl-rekrutacja-web-254455.pages.dev/"
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
@@ -64,10 +68,13 @@ jobs:
           retention-days: 5
 
       - name: Publish Playwright Report to Cloudflare Pages (e2e project)
+        id: deploy_report
         if: github.event_name == 'pull_request'
         run: |
           npm install -g wrangler
-          wrangler pages deploy playwright-report --project-name wongapl-rekrutacja-web-254455-e2e --branch ${{ github.head_ref }} --commit-hash ${{ github.sha }}
+          DEPLOY_OUTPUT=$(wrangler pages deploy playwright-report --project-name wongapl-rekrutacja-web-254455-e2e --branch ${{ github.head_ref }} --commit-hash ${{ github.sha }})
+          REPORT_URL=$(echo "$DEPLOY_OUTPUT" | grep 'https://' | grep -v 'dash.cloudflare.com' | head -n 1)
+          echo "deployment_url=$REPORT_URL" >> $GITHUB_OUTPUT
 
       - name: Get Playwright Test Summary
         id: get_summary
@@ -85,9 +92,9 @@ jobs:
         with:
           script: |
             const status = process.env.TEST_STATUS;
-            const reportUrl = `https://wongapl-rekrutacja-web-254455-e2e.pages.dev/`;
+            const reportUrl = process.env.REPORT_DEPLOY_URL;
 
-            let commentBody = `### E2E Test Report\n\n`;
+            let commentBody = `
             if (status === 'PASSED') {
               commentBody += `✅ All E2E tests passed! 🎉\n`;
             } else {
@@ -129,3 +136,4 @@ jobs:
           retry-exempt-status-codes: 400,401,403,404,422
         env:
           TEST_STATUS: ${{ steps.get_summary.outputs.TEST_STATUS }}
+          REPORT_DEPLOY_URL: ${{ steps.deploy_report.outputs.deployment_url }}
