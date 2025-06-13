@@ -69,7 +69,6 @@ jobs:
         id: get_app_url
         env:
           SOURCE_COMMIT: ${{ github.sha }}
-
         run: |
           set -euo pipefail
 
@@ -84,54 +83,59 @@ jobs:
           SLEEP_TIME=10
           DEPLOYMENT_URL=""
 
-
-          BRANCH_TO_CHECK=""
+          # Determine the branch/ref to check based on event type
           if [[ "${{ github.event_name }}" == "pull_request" ]]; then
-            
+            # For PRs, we need to use the head_ref (branch name)
             BRANCH_TO_CHECK="${{ github.head_ref }}"
+            IS_PR=true
           else
-            
+            # For pushes (including workflow_dispatch), use the ref_name
             BRANCH_TO_CHECK="${{ github.ref_name }}"
+            IS_PR=false
           fi
 
-          echo "Waiting for deployment for commit ${{ github.sha }} on branch $BRANCH_TO_CHECK..."
+          echo "Waiting for deployment for commit ${{ github.sha }} on branch $BRANCH_TO_CHECK (is PR: $IS_PR)..."
+
           while [ -z "$DEPLOYMENT_URL" ] && [ "$ATTEMPTS" -lt "$MAX_ATTEMPTS" ]; do
             ATTEMPTS=$((ATTEMPTS+1))
-            echo "--- Attempt $ATTEMPTS of $MAX_ATTEMPTS (approx. $(( (MAX_ATTEMPTS - ATTEMPTS) * SLEEP_TIME )) seconds remaining) ---"
+            echo "--- Attempt $ATTEMPTS of $MAX_ATTEMPTS ---"
 
             DEPLOYMENTS_JSON=$(curl -s -X GET "https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/pages/projects/$CLOUDFLARE_MAIN_APP_PROJECT_NAME/deployments" \
               -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
               -H "Content-Type: application/json")
 
             if ! echo "$DEPLOYMENTS_JSON" | jq -e '.success' >/dev/null 2>&1; then
-              echo "::warning::Invalid response from Cloudflare API or API error (e.g., token)."
-              echo "API Response: $DEPLOYMENTS_JSON"
+              echo "::warning::Invalid response from Cloudflare API"
               sleep "$SLEEP_TIME"
               continue
             fi
-            
-            if [[ "${{ github.event_name }}" == "pull_request" ]]; then
-              echo "Searching for branch preview URL for Pull Request..."
+
+            # For PRs, look for branch preview URLs
+            if [ "$IS_PR" = true ]; then
+              DEPLOYMENT_URL=$(echo "$DEPLOYMENTS_JSON" | jq -r --arg commit_hash "${{ github.sha }}" \
+                '.result[] | select(.deployment_trigger.metadata.commit_hash == $commit_hash and .latest_stage.status == "success") | .url // empty')
               
-              DEPLOYMENT_URL=$(echo "$DEPLOYMENTS_JSON" | jq -r --arg commit_hash "${{ github.sha }}" --arg branch "$BRANCH_TO_CHECK" \
-                '.result[] | select(.deployment_trigger.metadata.commit_hash == $commit_hash and .deployment_trigger.metadata.branch == $branch and .latest_stage.status == "success") | .branch_preview_url // empty')
+              # If not found by commit hash, try to find the latest successful deployment for this branch
+              if [ -z "$DEPLOYMENT_URL" ]; then
+                DEPLOYMENT_URL=$(echo "$DEPLOYMENTS_JSON" | jq -r --arg branch "$BRANCH_TO_CHECK" \
+                  '.result[] | select(.deployment_trigger.metadata.branch == $branch and .latest_stage.status == "success") | .url // empty' | head -n 1)
+              fi
             else
-              echo "Searching for production/main branch deployment URL..."
-              
+              # For non-PRs (pushes to main), look for production URLs
               DEPLOYMENT_URL=$(echo "$DEPLOYMENTS_JSON" | jq -r --arg commit_hash "${{ github.sha }}" --arg branch "$BRANCH_TO_CHECK" \
                 '.result[] | select(.deployment_trigger.metadata.commit_hash == $commit_hash and .deployment_trigger.metadata.branch == $branch and .latest_stage.status == "success") | .url // empty')
             fi
 
             if [ -z "$DEPLOYMENT_URL" ]; then
-                echo "Deployment for commit ${{ github.sha }} on branch $BRANCH_TO_CHECK is not ready yet (waiting for status: success). Retrying in ${SLEEP_TIME} seconds..."
-                sleep "$SLEEP_TIME"
+              echo "Deployment not ready yet. Retrying in $SLEEP_TIME seconds..."
+              sleep "$SLEEP_TIME"
             else
-              echo "Found successful deployment URL: $DEPLOYMENT_URL"
+              echo "Found deployment URL: $DEPLOYMENT_URL"
             fi
           done
 
           if [ -z "$DEPLOYMENT_URL" ]; then
-            echo "::error::Timed out waiting for the Cloudflare Pages deployment to be ready (15 minutes). Check the Cloudflare build logs for issues."
+            echo "::error::Timed out waiting for deployment"
             exit 1
           fi
 
