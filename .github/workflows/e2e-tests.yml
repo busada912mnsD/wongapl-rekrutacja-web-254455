@@ -67,7 +67,6 @@ jobs:
 
       - name: Get Main App Preview URL from Cloudflare Pages
         id: get_app_url
-        if: github.event_name == 'pull_request'
         env:
           SOURCE_COMMIT: ${{ github.event.pull_request.head.sha }}
           GITHUB_HEAD_REF: ${{ github.head_ref }}
