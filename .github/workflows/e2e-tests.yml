@@ -144,7 +144,7 @@ jobs:
 
       - name: Publish Playwright Report to Cloudflare Pages (e2e project)
         id: deploy_report
-        if: always() && github.event_name == 'pull_request' || github.ref == 'refs/heads/main')
+        if: always() && (github.event_name == 'pull_request' || github.ref == 'refs/heads/main')
         run: |
           set -euo pipefail
 
