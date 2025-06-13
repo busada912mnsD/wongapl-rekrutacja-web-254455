@@ -69,7 +69,7 @@ jobs:
         id: get_app_url
         env:
           SOURCE_COMMIT: ${{ github.sha }}
-          GITHUB_HEAD_REF: ${{ github.ref_name }}
+          GITHUB_HEAD_REF: ${{ github.ref }}
         run: |
           set -euo pipefail
 
@@ -100,13 +100,11 @@ jobs:
               continue
             fi
             
-            
             if [[ "${{ github.event_name }}" == "pull_request" ]]; then
               echo "Searching for branch preview URL for Pull Request..."
               DEPLOYMENT_URL=$(echo "$DEPLOYMENTS_JSON" | jq -r --arg commit_hash "$SOURCE_COMMIT" --arg branch "$GITHUB_HEAD_REF" \
                 '.result[] | select(.deployment_trigger.metadata.commit_hash == $commit_hash and .deployment_trigger.metadata.branch == $branch and .latest_stage.status == "success") | .branch_preview_url // empty')
             else
-              
               echo "Searching for production/main branch deployment URL..."
               DEPLOYMENT_URL=$(echo "$DEPLOYMENTS_JSON" | jq -r --arg commit_hash "$SOURCE_COMMIT" --arg branch "$GITHUB_HEAD_REF" \
                 '.result[] | select(.deployment_trigger.metadata.commit_hash == $commit_hash and .deployment_trigger.metadata.branch == $branch and .latest_stage.status == "success") | .url // empty')
@@ -114,7 +112,7 @@ jobs:
 
             if [ -z "$DEPLOYMENT_URL" ]; then
                 echo "Deployment for commit $SOURCE_COMMIT on branch $GITHUB_HEAD_REF is not ready yet (waiting for status: success). Retrying in ${SLEEP_TIME} seconds..."
-                sleep "$SLEEEP_TIME"
+                sleep "$SLEEP_TIME"
             else
               echo "Found successful deployment URL: $DEPLOYMENT_URL"
             fi
@@ -162,12 +160,10 @@ jobs:
 
           DEPLOY_OUTPUT=$(npx wrangler pages deploy playwright-report \
             --project-name ${{ env.CLOUDFLARE_E2E_REPORT_PROJECT_NAME }} \
-            --branch ${{ github.head_ref || 'main' }} \
+            --branch ${{ github.head_ref || github.ref_name }} \
             --commit-hash ${{ github.sha }} \
             2>&1
           )
-
-
 
           echo "$DEPLOY_OUTPUT"
 
@@ -176,7 +172,7 @@ jobs:
             if [ "${{ github.ref }}" == "refs/heads/main" ]; then
               DEPLOYMENT_PREVIEW_URL="https://${{ env.CLOUDFLARE_E2E_REPORT_PROJECT_NAME }}.pages.dev/"
             else
-              DEPLOYMENT_PREVIEW_URL="https://${{ github.head_ref }}.${{ env.CLOUDFLARE_E2E_REPORT_PROJECT_NAME }}.pages.dev/"
+              DEPLOYMENT_PREVIEW_URL="https://${{ github.head_ref || github.ref_name }}.${{ env.CLOUDFLARE_E2E_REPORT_PROJECT_NAME }}.pages.dev/"
             fi
           fi
           echo "deployment_url=$DEPLOYMENT_PREVIEW_URL" >> $GITHUB_OUTPUT
@@ -185,14 +181,11 @@ jobs:
         id: get_summary
         if: always() && (github.event_name == 'pull_request' || github.ref == 'refs/heads/main')
         run: |
-
-
           if [ ! -f playwright-report/results.json ]; then
             echo "::warning::playwright-report/results.json not found. Cannot determine test status accurately."
             echo "TEST_STATUS=ERROR: results.json not found" >> $GITHUB_OUTPUT
-            exit 0 
+            exit 0
           fi
-
 
           if [ ! -s playwright-report/results.json ]; then
             echo "::warning::playwright-report/results.json is empty. Cannot determine test status accurately."
@@ -200,7 +193,7 @@ jobs:
             exit 0
           fi
 
-            FAILED_COUNT=$(jq -r '.stats.unexpected // 0' playwright-report/results.json 2>/dev/null)
+          FAILED_COUNT=$(jq -r '.stats.unexpected // 0' playwright-report/results.json 2>/dev/null)
 
           if [ $? -ne 0 ] || [ -z "$FAILED_COUNT" ]; then
             echo "::warning::Failed to parse playwright-report/results.json. It might be corrupted or malformed."
@@ -225,7 +218,7 @@ jobs:
             const reportUrl = process.env.REPORT_DEPLOY_URL;
             const appPreviewUrl = process.env.APP_PREVIEW_URL;
 
-            let commentBody = '
+            let commentBody = '### 🤖 E2E Test Report\n\n';
 
             if (status && status.includes('PASSED')) {
                 commentBody += '✅ **Wszystkie testy zaliczone**\n';
