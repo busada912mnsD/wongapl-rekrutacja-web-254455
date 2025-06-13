@@ -194,10 +194,8 @@ jobs:
             exit 0
           fi
 
-          # Spróbuj odczytać failures, ale dodaj obsługę błędów jq
           FAILED_COUNT=$(jq -r '.stats.failures // 0' playwright-report/results.json 2>/dev/null)
 
-          # Jeśli jq zwróci błąd (np. plik jest nieprawidłowym JSONem), traktuj jako błąd
           if [ $? -ne 0 ] || [ -z "$FAILED_COUNT" ]; then
             echo "::warning::Failed to parse playwright-report/results.json. It might be corrupted or malformed."
             echo "TEST_STATUS=ERROR: results.json parse error" >> $GITHUB_OUTPUT
