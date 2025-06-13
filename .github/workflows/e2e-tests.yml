@@ -68,8 +68,8 @@ jobs:
       - name: Get Main App Preview URL from Cloudflare Pages
         id: get_app_url
         env:
-          SOURCE_COMMIT: ${{ github.event.pull_request.head.sha }}
-          GITHUB_HEAD_REF: ${{ github.head_ref }}
+          SOURCE_COMMIT: ${{ github.sha }}
+          GITHUB_HEAD_REF: ${{ github.ref_name }}
         run: |
           set -euo pipefail
 
@@ -84,7 +84,7 @@ jobs:
           SLEEP_TIME=10
           DEPLOYMENT_URL=""
 
-          echo "Waiting for Preview deployment for commit $SOURCE_COMMIT on branch $GITHUB_HEAD_REF..."
+          echo "Waiting for deployment for commit $SOURCE_COMMIT on branch $GITHUB_HEAD_REF..."
           while [ -z "$DEPLOYMENT_URL" ] && [ "$ATTEMPTS" -lt "$MAX_ATTEMPTS" ]; do
             ATTEMPTS=$((ATTEMPTS+1))
             echo "--- Attempt $ATTEMPTS of $MAX_ATTEMPTS (approx. $(( (MAX_ATTEMPTS - ATTEMPTS) * SLEEP_TIME )) seconds remaining) ---"
@@ -100,26 +100,23 @@ jobs:
               continue
             fi
             
-            echo "Available deployments for branch $GITHUB_HEAD_REF and commit $SOURCE_COMMIT:"
-            echo "$DEPLOYMENTS_JSON" | jq -r --arg commit_hash "$SOURCE_COMMIT" --arg branch "$GITHUB_HEAD_REF" \
-              '.result[] | select(.deployment_trigger.metadata.commit_hash == $commit_hash) | select(.deployment_trigger.metadata.branch == $branch) | "\(.id) - \(.deployment_trigger.metadata.commit_hash) - \(.deployment_trigger.metadata.branch) - Status: \(.latest_stage.status) - URL: \(.url) - Branch Preview URL: \(.branch_preview_url)"' || true
             
-            # Zmiana: Dodano operator // empty, aby jq zwracało pusty string zamiast "null"
-            DEPLOYMENT_URL=$(echo "$DEPLOYMENTS_JSON" | jq -r --arg commit_hash "$SOURCE_COMMIT" --arg branch "$GITHUB_HEAD_REF" \
-              '.result[] | select(.deployment_trigger.metadata.commit_hash == $commit_hash and .deployment_trigger.metadata.branch == $branch and .latest_stage.status == "success") | .branch_preview_url // empty')
+            if [[ "${{ github.event_name }}" == "pull_request" ]]; then
+              echo "Searching for branch preview URL for Pull Request..."
+              DEPLOYMENT_URL=$(echo "$DEPLOYMENTS_JSON" | jq -r --arg commit_hash "$SOURCE_COMMIT" --arg branch "$GITHUB_HEAD_REF" \
+                '.result[] | select(.deployment_trigger.metadata.commit_hash == $commit_hash and .deployment_trigger.metadata.branch == $branch and .latest_stage.status == "success") | .branch_preview_url // empty')
+            else
+              
+              echo "Searching for production/main branch deployment URL..."
+              DEPLOYMENT_URL=$(echo "$DEPLOYMENTS_JSON" | jq -r --arg commit_hash "$SOURCE_COMMIT" --arg branch "$GITHUB_HEAD_REF" \
+                '.result[] | select(.deployment_trigger.metadata.commit_hash == $commit_hash and .deployment_trigger.metadata.branch == $branch and .latest_stage.status == "success") | .url // empty')
+            fi
 
             if [ -z "$DEPLOYMENT_URL" ]; then
-                # Zmiana: Dodano operator // empty, aby jq zwracało pusty string zamiast "null"
-                DEPLOYMENT_URL=$(echo "$DEPLOYMENTS_JSON" | jq -r --arg commit_hash "$SOURCE_COMMIT" --arg branch "$GITHUB_HEAD_REF" \
-                  '.result[] | select(.deployment_trigger.metadata.commit_hash == $commit_hash and .deployment_trigger.metadata.branch == $branch and .latest_stage.status == "success") | .url // empty')
-                if [ -n "$DEPLOYMENT_URL" ]; then
-                    echo "Found successful deployment URL (using .url as fallback) for the main app: $DEPLOYMENT_URL"
-                else
-                    echo "Deployment for commit $SOURCE_COMMIT on branch $GITHUB_HEAD_REF is not ready yet (waiting for status: success). Retrying in ${SLEEP_TIME} seconds..."
-                    sleep "$SLEEP_TIME"
-                fi
+                echo "Deployment for commit $SOURCE_COMMIT on branch $GITHUB_HEAD_REF is not ready yet (waiting for status: success). Retrying in ${SLEEP_TIME} seconds..."
+                sleep "$SLEEEP_TIME"
             else
-              echo "Found successful deployment Branch Preview URL for the main app: $DEPLOYMENT_URL"
+              echo "Found successful deployment URL: $DEPLOYMENT_URL"
             fi
           done
 
@@ -188,15 +185,15 @@ jobs:
         id: get_summary
         if: always() && (github.event_name == 'pull_request' || github.ref == 'refs/heads/main')
         run: |
-          # Zmieniono logikę, aby dokładniej sprawdzać plik results.json
-          # i przekazywać status ERROR, jeśli plik nie istnieje lub jest pusty.
+
+
           if [ ! -f playwright-report/results.json ]; then
             echo "::warning::playwright-report/results.json not found. Cannot determine test status accurately."
             echo "TEST_STATUS=ERROR: results.json not found" >> $GITHUB_OUTPUT
-            exit 0 # Umożliwia kontynuowanie, aby komentarz w PR mógł zostać dodany
+            exit 0 
           fi
 
-          # Sprawdź, czy plik results.json jest pusty
+
           if [ ! -s playwright-report/results.json ]; then
             echo "::warning::playwright-report/results.json is empty. Cannot determine test status accurately."
             echo "TEST_STATUS=ERROR: results.json is empty" >> $GITHUB_OUTPUT
@@ -228,9 +225,8 @@ jobs:
             const reportUrl = process.env.REPORT_DEPLOY_URL;
             const appPreviewUrl = process.env.APP_PREVIEW_URL;
 
-            let commentBody = '### 🤖 E2E Test Report\n\n';
+            let commentBody = '
 
-            // Logika dla statusu, uwzględniająca nowy status "ERROR"
             if (status && status.includes('PASSED')) {
                 commentBody += '✅ **Wszystkie testy zaliczone**\n';
             } else if (status && status.includes('FAILED')) {
