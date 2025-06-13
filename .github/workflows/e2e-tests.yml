@@ -161,6 +161,7 @@ jobs:
             2>&1
           )
 
+
           echo "$DEPLOY_OUTPUT"
 
           DEPLOYMENT_PREVIEW_URL=$(echo "$DEPLOY_OUTPUT" | grep 'https://' | head -n 1 | awk '{print $NF}')
