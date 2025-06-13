@@ -246,7 +246,7 @@ jobs:
             const reportUrl = process.env.REPORT_DEPLOY_URL;
             const appPreviewUrl = process.env.APP_PREVIEW_URL;
 
-            let commentBody = '
+            let commentBody = '## E2E Test Report\n\n';
 
             if (status && status.includes('PASSED')) {
                 commentBody += '✅ **Wszystkie testy zaliczone**\n';
