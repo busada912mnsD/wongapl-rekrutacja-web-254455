@@ -177,7 +177,7 @@ jobs:
 
       - name: Get Playwright Test Summary
         id: get_summary
-        if: always() && github.event_name == 'pull_request'
+        if: always() && (github.event_name == 'pull_request' || github.ref == 'refs/heads/main')
         run: |
           # Zmieniono logikę, aby dokładniej sprawdzać plik results.json
           # i przekazywać status ERROR, jeśli plik nie istnieje lub jest pusty.
