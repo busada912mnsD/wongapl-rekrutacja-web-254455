@@ -69,7 +69,7 @@ jobs:
         id: get_app_url
         env:
           SOURCE_COMMIT: ${{ github.sha }}
-          GITHUB_HEAD_REF: ${{ github.ref }}
+
         run: |
           set -euo pipefail
 
@@ -84,7 +84,17 @@ jobs:
           SLEEP_TIME=10
           DEPLOYMENT_URL=""
 
-          echo "Waiting for deployment for commit $SOURCE_COMMIT on branch $GITHUB_HEAD_REF..."
+
+          BRANCH_TO_CHECK=""
+          if [[ "${{ github.event_name }}" == "pull_request" ]]; then
+            
+            BRANCH_TO_CHECK="${{ github.head_ref }}"
+          else
+            
+            BRANCH_TO_CHECK="${{ github.ref_name }}"
+          fi
+
+          echo "Waiting for deployment for commit ${{ github.sha }} on branch $BRANCH_TO_CHECK..."
           while [ -z "$DEPLOYMENT_URL" ] && [ "$ATTEMPTS" -lt "$MAX_ATTEMPTS" ]; do
             ATTEMPTS=$((ATTEMPTS+1))
             echo "--- Attempt $ATTEMPTS of $MAX_ATTEMPTS (approx. $(( (MAX_ATTEMPTS - ATTEMPTS) * SLEEP_TIME )) seconds remaining) ---"
@@ -102,16 +112,18 @@ jobs:
             
             if [[ "${{ github.event_name }}" == "pull_request" ]]; then
               echo "Searching for branch preview URL for Pull Request..."
-              DEPLOYMENT_URL=$(echo "$DEPLOYMENTS_JSON" | jq -r --arg commit_hash "$SOURCE_COMMIT" --arg branch "$GITHUB_HEAD_REF" \
+              
+              DEPLOYMENT_URL=$(echo "$DEPLOYMENTS_JSON" | jq -r --arg commit_hash "${{ github.sha }}" --arg branch "$BRANCH_TO_CHECK" \
                 '.result[] | select(.deployment_trigger.metadata.commit_hash == $commit_hash and .deployment_trigger.metadata.branch == $branch and .latest_stage.status == "success") | .branch_preview_url // empty')
             else
               echo "Searching for production/main branch deployment URL..."
-              DEPLOYMENT_URL=$(echo "$DEPLOYMENTS_JSON" | jq -r --arg commit_hash "$SOURCE_COMMIT" --arg branch "$GITHUB_HEAD_REF" \
+              
+              DEPLOYMENT_URL=$(echo "$DEPLOYMENTS_JSON" | jq -r --arg commit_hash "${{ github.sha }}" --arg branch "$BRANCH_TO_CHECK" \
                 '.result[] | select(.deployment_trigger.metadata.commit_hash == $commit_hash and .deployment_trigger.metadata.branch == $branch and .latest_stage.status == "success") | .url // empty')
             fi
 
             if [ -z "$DEPLOYMENT_URL" ]; then
-                echo "Deployment for commit $SOURCE_COMMIT on branch $GITHUB_HEAD_REF is not ready yet (waiting for status: success). Retrying in ${SLEEP_TIME} seconds..."
+                echo "Deployment for commit ${{ github.sha }} on branch $BRANCH_TO_CHECK is not ready yet (waiting for status: success). Retrying in ${SLEEP_TIME} seconds..."
                 sleep "$SLEEP_TIME"
             else
               echo "Found successful deployment URL: $DEPLOYMENT_URL"
@@ -158,9 +170,20 @@ jobs:
             exit 0
           fi
 
+
+
+
+
+          BRANCH_FOR_WRANGLER=""
+          if [[ "${{ github.event_name }}" == "pull_request" ]]; then
+            BRANCH_FOR_WRANGLER="${{ github.head_ref }}"
+          else
+            BRANCH_FOR_WRANGLER="${{ github.ref_name }}"
+          fi
+
           DEPLOY_OUTPUT=$(npx wrangler pages deploy playwright-report \
             --project-name ${{ env.CLOUDFLARE_E2E_REPORT_PROJECT_NAME }} \
-            --branch ${{ github.head_ref || github.ref_name }} \
+            --branch "$BRANCH_FOR_WRANGLER" \
             --commit-hash ${{ github.sha }} \
             2>&1
           )
@@ -169,6 +192,7 @@ jobs:
 
           DEPLOYMENT_PREVIEW_URL=$(echo "$DEPLOY_OUTPUT" | grep 'https://' | head -n 1 | awk '{print $NF}')
           if [ -z "$DEPLOYMENT_PREVIEW_URL" ]; then
+            
             if [ "${{ github.ref }}" == "refs/heads/main" ]; then
               DEPLOYMENT_PREVIEW_URL="https://${{ env.CLOUDFLARE_E2E_REPORT_PROJECT_NAME }}.pages.dev/"
             else
@@ -218,7 +242,7 @@ jobs:
             const reportUrl = process.env.REPORT_DEPLOY_URL;
             const appPreviewUrl = process.env.APP_PREVIEW_URL;
 
-            let commentBody = '### 🤖 E2E Test Report\n\n';
+            let commentBody = '
 
             if (status && status.includes('PASSED')) {
                 commentBody += '✅ **Wszystkie testy zaliczone**\n';
